@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>C3 设备管理</title>
+  <link rel="stylesheet" href="css/c3.css?v=5">
+</head>
+<body>
+  <div id="app">
+    <!-- ======== Header ======== -->
+    <header class="c3-header" role="banner">
+      <div class="c3-header__inner">
+        <div class="c3-header__brand">
+          <!-- Inline logo SVG: stylized C3 -->
+          <svg class="c3-header__logo" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+            <rect x="1" y="1" width="26" height="26" rx="5" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M10 8.5a6 6 0 1 0 0 11" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
+            <text x="18" y="19.5" font-family="monospace" font-size="9" font-weight="800" fill="currentColor">3</text>
+          </svg>
+          <span class="c3-header__title">C3</span>
+        </div>
+        <div class="c3-header__status" aria-live="polite">
+          <span class="c3-header__dot" id="status-dot" title="连接状态"></span>
+          <span id="status-text">检测中…</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- ======== Nav ======== -->
+    <nav class="c3-nav" role="navigation" aria-label="主导航">
+      <div class="c3-nav__inner">
+        <button class="c3-nav__tab c3-nav__tab--active" data-view="home" aria-selected="true" role="tab">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>
+          设备状态
+        </button>
+        <button class="c3-nav__tab" data-view="live" aria-selected="false" role="tab">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="3"/><path d="M2.5 8a5.5 5.5 0 0 1 11 0M5 8a3 3 0 0 1 6 0"/></svg>
+          实时画面
+        </button>
+        <button class="c3-nav__tab" data-view="routes" aria-selected="false" role="tab">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="3" cy="3" r="1.5"/><circle cx="3" cy="8" r="1.5"/><circle cx="3" cy="13" r="1.5"/><line x1="6" y1="3" x2="14" y2="3"/><line x1="6" y1="8" x2="14" y2="8"/><line x1="6" y1="13" x2="14" y2="13"/></svg>
+          历史录像
+        </button>
+      </div>
+    </nav>
+
+    <!-- ======== Main Content ======== -->
+    <main class="c3-main" role="main">
+
+      <!-- ===== HOME VIEW ===== -->
+      <section id="view-home" class="c3-view c3-view--active" aria-label="设备状态">
+        <div class="c3-status" id="status-grid">
+          <!-- Populated by JS -->
+        </div>
+      </section>
+
+      <!-- ===== LIVE VIEW ===== -->
+      <section id="view-live" class="c3-view" aria-label="实时画面">
+        <div class="c3-live">
+          <div class="c3-live__cameras">
+            <!-- Road camera -->
+            <div class="c3-cam" id="cam-road">
+              <div class="c3-cam__header">
+                <span class="c3-cam__label">
+                  <span class="c3-cam__indicator" id="cam-road-indicator"></span>
+                  道路
+                </span>
+                <span id="cam-road-status" style="font-size:0.7rem;color:var(--fg-muted);font-family:var(--font-mono)"></span>
+              </div>
+              <div class="c3-cam__body">
+                <img class="c3-cam__img" id="cam-road-img" alt="道路实时画面" src="">
+                <div class="c3-cam__placeholder" id="cam-road-placeholder">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  <span>点击「连接」开始道路画面</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Driver camera -->
+            <div class="c3-cam" id="cam-driver">
+              <div class="c3-cam__header">
+                <span class="c3-cam__label">
+                  <span class="c3-cam__indicator" id="cam-driver-indicator"></span>
+                  驾驶员
+                </span>
+                <span id="cam-driver-status" style="font-size:0.7rem;color:var(--fg-muted);font-family:var(--font-mono)"></span>
+              </div>
+              <div class="c3-cam__body">
+                <img class="c3-cam__img" id="cam-driver-img" alt="驾驶员实时画面" src="">
+                <div class="c3-cam__placeholder" id="cam-driver-placeholder">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                  <span>点击「连接」开始驾驶员画面</span>
+                </div>
+              </div>
+            </div>
+            <!-- Wide road camera -->
+            <div class="c3-cam" id="cam-wide-road">
+              <div class="c3-cam__header">
+                <span class="c3-cam__label">
+                  <span class="c3-cam__indicator" id="cam-wide-road-indicator"></span>
+                  广角道路
+                </span>
+                <span id="cam-wide-road-status" style="font-size:0.7rem;color:var(--fg-muted);font-family:var(--font-mono)"></span>
+              </div>
+              <div class="c3-cam__body">
+                <img class="c3-cam__img" id="cam-wide-road-img" alt="广角道路实时画面" src="">
+                <div class="c3-cam__placeholder" id="cam-wide-road-placeholder">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  <span>点击「连接」开始广角道路画面</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Controls -->
+          <div class="c3-live__controls">
+            <button class="c3-btn c3-btn--primary" id="btn-live-connect" type="button">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="3"/><path d="M2.5 8a5.5 5.5 0 0 1 11 0"/></svg>
+              连接
+            </button>
+            <button class="c3-btn c3-btn--danger" id="btn-live-disconnect" type="button" disabled>
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="3" y1="3" x2="13" y2="13"/><line x1="13" y1="3" x2="3" y2="13"/></svg>
+              断开
+            </button>
+            <!-- Quality selector -->
+            <div class="c3-quality" id="quality-selector" role="radiogroup" aria-label="画面质量">
+              <span class="c3-quality__label">画质</span>
+              <div class="c3-quality__options" id="quality-options">
+                <!-- Populated by JS from /api/live/config -->
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== ROUTES VIEW ===== -->
+      <section id="view-routes" class="c3-view" aria-label="历史录像">
+        <div class="c3-routes">
+          <div id="routes-content">
+            <!-- Populated by JS: list or detail -->
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- PIN authentication overlay -->
+  <div class="c3-pin-overlay" id="pin-overlay" style="display:none" role="dialog" aria-label="访问验证" aria-modal="true">
+    <div class="c3-pin">
+      <div class="c3-pin__header">
+        <svg class="c3-pin__logo" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+          <rect x="1" y="1" width="26" height="26" rx="5" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M10 8.5a6 6 0 1 0 0 11" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
+          <text x="18" y="19.5" font-family="monospace" font-size="9" font-weight="800" fill="currentColor">3</text>
+        </svg>
+        <h1 class="c3-pin__title">C3 设备管理</h1>
+        <p class="c3-pin__subtitle">请输入访问密码</p>
+      </div>
+      <div class="c3-pin__dots" id="pin-dots" aria-label="密码位数">
+        <span class="c3-pin__dot"></span>
+        <span class="c3-pin__dot"></span>
+        <span class="c3-pin__dot"></span>
+        <span class="c3-pin__dot"></span>
+      </div>
+      <div class="c3-pin__error" id="pin-error" aria-live="polite"></div>
+      <div class="c3-pin__pad" id="pin-pad" role="group" aria-label="数字键盘">
+        <button class="c3-pin__key" type="button" data-digit="1" aria-label="1">1</button>
+        <button class="c3-pin__key" type="button" data-digit="2" aria-label="2">2</button>
+        <button class="c3-pin__key" type="button" data-digit="3" aria-label="3">3</button>
+        <button class="c3-pin__key" type="button" data-digit="4" aria-label="4">4</button>
+        <button class="c3-pin__key" type="button" data-digit="5" aria-label="5">5</button>
+        <button class="c3-pin__key" type="button" data-digit="6" aria-label="6">6</button>
+        <button class="c3-pin__key" type="button" data-digit="7" aria-label="7">7</button>
+        <button class="c3-pin__key" type="button" data-digit="8" aria-label="8">8</button>
+        <button class="c3-pin__key" type="button" data-digit="9" aria-label="9">9</button>
+        <span class="c3-pin__key c3-pin__key--blank" aria-hidden="true"></span>
+        <button class="c3-pin__key" type="button" data-digit="0" aria-label="0">0</button>
+        <button class="c3-pin__key c3-pin__key--fn" type="button" data-action="delete" aria-label="删除">⌫</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast container -->
+  <div class="c3-toast-container" id="toast-container" aria-live="polite"></div>
+
+  <script src="js/c3.js?v=5"></script>
+</body>
+</html>

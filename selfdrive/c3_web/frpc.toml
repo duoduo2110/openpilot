@@ -1,0 +1,22 @@
+# ============================================================
+# C3WEB FRP 客户端配置 — 请替换为你的 FRP 服务器信息
+# ============================================================
+# 使用前必须修改以下配置项：
+#   serverAddr  → 你的 FRP 服务器地址
+#   serverPort  → 你的 FRP 服务器端口
+#   auth.token  → 你的 FRP 认证令牌
+#   customDomains → 你的域名
+# ============================================================
+
+serverAddr = "your-frp-server.example.com"
+serverPort = 7000
+auth.token = "your-auth-token-here"
+loginFailExit = false
+transport.protocol = "wss"
+
+[[proxies]]
+name = "c3-web"
+type = "http"
+localIP = "127.0.0.1"
+localPort = 8082
+customDomains = ["your-domain.example.com"]
