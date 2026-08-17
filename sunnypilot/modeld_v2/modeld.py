@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 import os
+from openpilot.selfdrive.modeld.helpers import usbgpu_present
 from openpilot.system.hardware import TICI
 os.environ['DEV'] = 'QCOM' if TICI else 'CPU'
-USBGPU = "USBGPU" in os.environ
-if USBGPU:
-  os.environ['DEV'] = 'AMD'
-  os.environ['AMD_IFACE'] = 'USB'
+os.environ['GMMU'] = '0'
 import time
 import numpy as np
 import cereal.messaging as messaging
@@ -181,6 +179,10 @@ class ModelState(ModelStateBase):
 
 def main(demo=False):
   cloudlog.warning("modeld init")
+
+  _present = usbgpu_present()
+  params = Params()
+  params.put_bool("UsbGpuPresent", _present)
 
   sentry.set_tag("daemon", PROCESS_NAME)
   cloudlog.bind(daemon=PROCESS_NAME)

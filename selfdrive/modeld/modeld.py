@@ -1,16 +1,11 @@
 #!/usr/bin/env python3
 import os
-from openpilot.selfdrive.modeld.tinygrad_helpers import MODELS_DIR, set_tinygrad_backend_from_compiled_flags
+from openpilot.selfdrive.modeld.helpers import MODELS_DIR, usbgpu_present, modeld_pkl_path, get_tg_input_devices
+from openpilot.selfdrive.modeld.tinygrad_helpers import set_tinygrad_backend_from_compiled_flags
 set_tinygrad_backend_from_compiled_flags()
 
-# FIXME-SP: remove once we bump tg
-from openpilot.system.hardware import TICI
-os.environ['DEV'] = 'QCOM' if TICI else 'CPU'
-
-USBGPU = "USBGPU" in os.environ
-if USBGPU:
-  os.environ['DEV'] = 'AMD'
-  os.environ['AMD_IFACE'] = 'USB'
+os.environ['GMMU'] = '0'
+from tinygrad.tensor import Tensor
 from tinygrad.tensor import Tensor
 import time
 import pickle
@@ -245,6 +240,13 @@ class ModelState(ModelStateBase):
 
 def main(demo=False):
   cloudlog.warning("modeld init")
+
+  _present = usbgpu_present()
+  _compiled = os.path.isfile(get_manifest_path(modeld_pkl_path(usbgpu=True)))
+  USBGPU = _present and _compiled
+  params = Params()
+  params.put_bool("UsbGpuPresent", _present)
+  params.put_bool("UsbGpuCompiled", _compiled)
 
   if not USBGPU:
     # USB GPU currently saturates a core so can't do this yet,
