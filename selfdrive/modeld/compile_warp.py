@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import time
 import pickle
 import numpy as np
@@ -7,6 +8,8 @@ from tinygrad.tensor import Tensor
 from tinygrad.helpers import Context
 from tinygrad.device import Device
 from tinygrad.engine.jit import TinyJit
+
+WARP_DEV = os.getenv('WARP_DEV', Device.DEFAULT)
 
 from openpilot.system.camerad.cameras.nv12_info import get_nv12_info
 from openpilot.common.transformations.model import MEDMODEL_INPUT_SIZE, DM_INPUT_SIZE
@@ -95,7 +98,7 @@ def make_frame_prepare(cam_w, cam_h, model_w, model_h):
 
 def make_update_img_input(frame_prepare, model_w, model_h):
   def update_img_input_tinygrad(tensor, frame, M_inv):
-    M_inv = M_inv.to(Device.DEFAULT)
+    M_inv = M_inv.to(WARP_DEV)
     new_img = frame_prepare(frame, M_inv)
     tensor.assign(tensor[6:].cat(new_img, dim=0).contiguous())
     return Tensor.cat(tensor[:6], tensor[-6:], dim=0).contiguous().reshape(1, 12, model_h//2, model_w//2)
@@ -118,7 +121,7 @@ def make_warp_dm(cam_w, cam_h, dm_w, dm_h):
   stride_pad = stride - cam_w
 
   def warp_dm(input_frame, M_inv):
-    M_inv = M_inv.to(Device.DEFAULT)
+    M_inv = M_inv.to(WARP_DEV)
     result = warp_perspective_tinygrad(input_frame[:cam_h*stride], M_inv, (dm_w, dm_h), (cam_h, cam_w), stride_pad).reshape(-1, dm_h * dm_w)
     return result
   return warp_dm
