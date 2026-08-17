@@ -19,12 +19,14 @@ from openpilot.common.realtime import config_realtime_process, DT_MDL
 from openpilot.common.transformations.camera import DEVICE_CAMERAS
 from openpilot.common.transformations.model import get_warp_matrix
 from openpilot.system import sentry
+from openpilot.cereal.services import SERVICE_LIST
 from openpilot.selfdrive.controls.lib.desire_helper import DesireHelper
 from openpilot.selfdrive.controls.lib.drive_helpers import get_accel_from_plan, smooth_value
 
 from openpilot.sunnypilot.modeld_v2.fill_model_msg import fill_model_msg, fill_pose_msg, PublishState, get_curvature_from_output
 from openpilot.sunnypilot.modeld_v2.constants import Plan
 from openpilot.sunnypilot.modeld_v2.warp import Warp
+from openpilot.sunnypilot.modeld_v2.chestnut_state import ChestnutState
 from openpilot.sunnypilot.modeld_v2.meta_helper import load_meta_constants
 from openpilot.sunnypilot.modeld_v2.camera_offset_helper import CameraOffsetHelper
 
@@ -180,9 +182,13 @@ class ModelState(ModelStateBase):
 def main(demo=False):
   cloudlog.warning("modeld init")
 
-  _present = usbgpu_present()
+  USBGPU = usbgpu_present()
+  if USBGPU:
+    os.environ['HCQDEV_WAIT_TIMEOUT_MS'] = '3000'
+
   params = Params()
-  params.put_bool("UsbGpuPresent", _present)
+  params.put_bool("UsbGpuLoading", USBGPU)
+  params.remove("UsbGpuActive")
 
   sentry.set_tag("daemon", PROCESS_NAME)
   cloudlog.bind(daemon=PROCESS_NAME)
@@ -191,6 +197,8 @@ def main(demo=False):
 
   cloudlog.warning("loading model")
   model = ModelState()
+  params.put_bool("UsbGpuLoading", False)
+  params.put_bool("UsbGpuActive", USBGPU)
   cloudlog.warning("models loaded, modeld starting")
 
   # visionipc clients
@@ -217,10 +225,12 @@ def main(demo=False):
     cloudlog.warning(f"connected extra cam with buffer size: {vipc_client_extra.buffer_len} ({vipc_client_extra.width} x {vipc_client_extra.height})")
 
   # messaging
-  pm = PubMaster(["modelV2", "drivingModelData", "cameraOdometry", "modelDataV2SP"])
+  pub_socks = ["modelV2", "drivingModelData", "cameraOdometry", "modelDataV2SP"] + (["chestnutState"] if USBGPU else [])
+  pm = PubMaster(pub_socks)
   sm = SubMaster(["deviceState", "carState", "roadCameraState", "liveCalibration", "driverMonitoringState", "carControl", "liveDelay"])
 
   publish_state = PublishState()
+  chestnut_state = ChestnutState(pm, USBGPU) if USBGPU else None
   params = Params()
 
   # setup filter to track dropped frames
@@ -369,6 +379,9 @@ def main(demo=False):
       pm.send('cameraOdometry', posenet_send)
       pm.send('modelDataV2SP', mdv2sp_send)
     last_vipc_frame_id = meta_main.frame_id
+
+    if chestnut_state is not None and run_count % round(model.constants.MODEL_FREQ / SERVICE_LIST['chestnutState'].frequency) == 0:
+      chestnut_state.send()
 
 
 if __name__ == "__main__":

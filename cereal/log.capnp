@@ -1138,6 +1138,19 @@ struct LateralManeuverPlan {
   desiredCurvature @0 :Float32;  # 1/m
 }
 
+struct ChestnutState {
+  tempC @0 :Float32;
+  memoryTempC @1 :Float32;
+  powerDrawW @2 :Float32;
+  powerLimitW @3 :Float32;
+  gpuUsagePercent @4 :UInt8;
+  gpuClockMhz @5 :UInt16;
+  fanSpeedRpm @6 :UInt16;
+  pcieLtssm @7 :UInt8;
+  supplyVoltage @8 :UInt16;  # mV
+  supplyCurrent @9 :Int16;  # mA
+}
+
 struct LongitudinalPlan @0xe00b5b3eba12876c {
   modelMonoTime @9 :UInt64;
   hasLead @7 :Bool;
@@ -2460,6 +2473,8 @@ struct Event {
     audioFeedback @149 :AudioFeedback;
 
     lateralManeuverPlan @150 :LateralManeuverPlan;
+
+    chestnutState @152 :ChestnutState;
 
     # *********** debug ***********
     testJoystick @52 :Joystick;
