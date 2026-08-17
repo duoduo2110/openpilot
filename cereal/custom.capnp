@@ -141,6 +141,12 @@ struct ModelManagerSP @0xaedffd8f31e7b55d {
     fileName @0 :Text;
     downloadUri @1 :DownloadUri;
     downloadProgress @2 :DownloadProgress;
+    chunks @3 :List(Chunk);
+  }
+
+  struct Chunk {
+    fileName @0 :Text;
+    sha256 @1 :Text;
   }
 
   struct Model {

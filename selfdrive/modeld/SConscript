@@ -4,7 +4,16 @@ import os
 import sys, subprocess
 from SCons.Script import Value
 from openpilot.common.file_chunker import chunk_file, get_chunk_targets, get_existing_chunks
-from tinygrad import Device
+from openpilot.common.transformations.camera import _ar_ox_fisheye, _os_fisheye
+from openpilot.common.transformations.model import MEDMODEL_INPUT_SIZE, DM_INPUT_SIZE
+from openpilot.selfdrive.modeld.constants import ModelConstants
+from openpilot.selfdrive.modeld.helpers import TG_INPUT_DEVICES_PATH, usbgpu_present, modeld_pkl_path
+
+
+CAMERA_CONFIGS = [
+  (_ar_ox_fisheye.width, _ar_ox_fisheye.height),  # tici: 1928x1208
+  (_os_fisheye.width, _os_fisheye.height),        # mici: 1344x760
+]
 
 Import('env', 'arch')
 chunker_file = File("#common/file_chunker.py")
@@ -30,14 +39,12 @@ if 'CUDA' in available:
   tg_flags = f'DEV={tg_backend}'
 elif 'QCOM' in available:
   tg_backend = 'QCOM'
-  tg_flags = f'DEV={tg_backend} FLOAT16=1 NOLOCALS=1 JIT_BATCH_SIZE=0'
+  tg_flags = f'DEV={tg_backend} IMAGE=1 FLOAT16=1 NOLOCALS=1 JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1'
 else:
-  tg_backend = 'CPU' if arch == 'Darwin' else 'CPU CPU_LLVM=1'
-  tg_flags = f'DEV={tg_backend} THREADS=0'
+  tg_backend = 'CPU'
+  tg_flags = f'DEV=CPU' if arch == 'Darwin' else 'DEV=CPU:LLVM'
 
-from openpilot.selfdrive.modeld.helpers import TG_INPUT_DEVICES_PATH, usbgpu_present
-
-tg_devices = {
+tg_devices = { # which device to put jit inputs to at runtime
   'selfdrive.modeld.modeld': {
     'default': {'WARP_DEV': tg_backend, 'QUEUE_DEV': tg_backend}
   },
@@ -49,7 +56,8 @@ tg_devices = {
 USBGPU = usbgpu_present()
 if USBGPU:
   tg_devices['selfdrive.modeld.modeld']['usbgpu'] = {'WARP_DEV': tg_backend, 'QUEUE_DEV': 'AMD'}
-  usbgpu_tg_flags = f'DEBUG=2 DEV=USB+AMD:LLVM WARP_DEV={tg_backend} FLOAT16=1 JIT_BATCH_SIZE=0 GMMU=0'
+  usbgpu_tg_flags = f'DEBUG=2 DEV=USB+AMD:LLVM WARP_DEV={tg_backend} FLOAT16=1 JIT_BATCH_SIZE=0 GMMU=0 TC_OPT=2'
+  # the USB+AMD GPU takes an exclusive flock; serialize all targets that touch it
   usbgpu_lock = File("models/.usb_gpu.lock").abspath
 
 def write_tg_devices(target, source, env):
@@ -87,13 +95,30 @@ for model_name in ['driving_vision', 'driving_policy', 'dmonitoring_model']:
 image_flag = {
      'larch64': 'IMAGE=2',
 }.get(arch, 'IMAGE=0')
+
+# compile_dm_warp for dmonitoring warp
+compile_dm_warp_script = [File(Dir("#selfdrive/modeld").File("compile_dm_warp.py").abspath)]
+compile_modeld_script = [
+  File(Dir("#selfdrive/modeld").File("compile_modeld.py").abspath),
+  File(Dir("#selfdrive/modeld").File("get_model_metadata.py").abspath),
+  File("#system/camerad/cameras/nv12_info.py"),
+  File("#common/hardware/hw.py"),
+]
+dm_w, dm_h = DM_INPUT_SIZE
+for cam_w, cam_h in CAMERA_CONFIGS:
+  dm_pkl_path = File(f"models/dm_warp_{cam_w}x{cam_h}_tinygrad.pkl").abspath
+  cmd = (f'{tg_flags} {mac_brew_string} python3 {Dir("#selfdrive/modeld").abspath}/compile_dm_warp.py '
+         f'--camera-resolution {cam_w}x{cam_h} --warp-to {dm_w}x{dm_h} '
+         f'--output {dm_pkl_path}')
+  lenv.Command(dm_pkl_path, tinygrad_files + compile_dm_warp_script + compile_modeld_script + [tg_devices_node], cmd)
+
+# compile modeld warp (legacy path for selfdrive/modeld/modeld.py wrapper)
 script_files = [File(Dir("#selfdrive/modeld").File("compile_warp.py").abspath)]
 compile_warp_cmd = f'{tg_flags} {mac_brew_string} python3 {Dir("#selfdrive/modeld").abspath}/compile_warp.py '
-from openpilot.common.transformations.camera import _ar_ox_fisheye, _os_fisheye
 warp_targets = []
 for cam in [_ar_ox_fisheye, _os_fisheye]:
   w, h = cam.width, cam.height
-  warp_targets += [File(f"models/warp_{w}x{h}_tinygrad.pkl").abspath, File(f"models/dm_warp_{w}x{h}_tinygrad.pkl").abspath]
+  warp_targets += [File(f"models/warp_{w}x{h}_tinygrad.pkl").abspath]
 lenv.Command(warp_targets, tinygrad_files + script_files + [compiled_flags_node], compile_warp_cmd)
 
 def tg_compile(flags, model_name):
