@@ -70,6 +70,9 @@ if [ ! -z "$(git lfs ls-files)" ]; then
   exit 1
 fi
 
+# chunk large onnx files for GitHub
+find selfdrive/modeld/models -name '*.onnx' -size +95M -exec ./common/file_chunker.py {} \;
+
 # ensure files are within GitHub's limit
 BIG_FILES="$(find . -type f -not -path './.git/*' -size +95M)"
 if [ ! -z "$BIG_FILES" ]; then
