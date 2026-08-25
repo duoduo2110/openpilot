@@ -1,0 +1,99 @@
+From 29984d9164e2137cf06cfbd272d58a30a6305b83 Mon Sep 17 00:00:00 2001
+From: exp <exp@local>
+Date: Tue, 25 Aug 2026 19:53:44 +0800
+Subject: [PATCH 1/2] K1: bypass gcc-wrapper.py (python2 unavailable on build
+ host)
+
+---
+ Makefile | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/Makefile b/Makefile
+index 43a123ab..dd895d95 100644
+--- a/Makefile
++++ b/Makefile
+@@ -366,7 +366,7 @@ CHECK		= sparse
+ 
+ # Use the wrapper for the compiler.  This wrapper scans for new
+ # warnings and causes the build to stop upon encountering them
+-CC		= $(srctree)/scripts/gcc-wrapper.py $(REAL_CC)
++CC		= $(REAL_CC)
+ 
+ CHECKFLAGS     := -D__linux__ -Dlinux -D__STDC__ -Dunix -D__unix__ \
+ 		  -Wbitwise -Wno-return-void $(CF)
+-- 
+2.34.1
+
+
+From 1dfca549f3778757fd88cab0a63ac798a9e4c7f3 Mon Sep 17 00:00:00 2001
+From: exp <exp@local>
+Date: Tue, 25 Aug 2026 20:02:56 +0800
+Subject: [PATCH 2/2] K2: disable downstream msm/kgsl/audio drivers failing
+ under gcc11 (unrelated to PCIe/NVIDIA validation)
+
+---
+ arch/arm64/kernel/vdso/vdso.so     | Bin 3160 -> 3176 bytes
+ arch/arm64/kernel/vdso/vdso.so.dbg | Bin 5832 -> 5760 bytes
+ 2 files changed, 0 insertions(+), 0 deletions(-)
+
+diff --git a/arch/arm64/kernel/vdso/vdso.so b/arch/arm64/kernel/vdso/vdso.so
+index b52f0f5421292b5d8b4295065da23272189c1c74..f4b648be65b2570a865365f1c165b59e481b407f 100755
+GIT binary patch
+delta 542
+zcmca1@j_yPgdhVHI6&za6E)2Z3pgM=7%c#mWCGGGK%Br15rESZC#ric0LcOYI&A|H
+zW`NNk13)0)X-Nu*y@CzQMbMKO8I{?gf)njUIYH(!12N0whwSo`8yFQB4JI#S6qj58
+zRReV_10zt45Cc2IgUJ^e#TgqWzhvy>W@3OrhRL-|){Y<xMSvJ&p1WTt!-RVo8n=0W
+zZ&<&Wx3Zvy#VIavO(V!ym?M2M^GYj#{B%x;2;1a~Ov{;$C2y``{>RMtU~(n9J!8h?
+zo$T^V5llem#ZOLPWM@p6?8xz*QD?Fxr#<fkpk@#NS;#oKl~bAX0mz*|@L=*rPIJKs
+zXsE$xp2>_{;*$lqBsepmG8vN%xy%JILUnQ_mp<nMs2ZSIT;`nckevJx$h!dzo*R=5
+kxy?D@Q8l>`$P0jmS-|9tKwbot7cu!Gw>@LQWJ4Zx0AdYSjQ{`u
+
+delta 533
+zcmaDMaYJH)gy01x1~71dPz*OFYML7+a6ou4S^z2uQp*Cw0qhU~I6ZNqy5|n4N$9i$
+zR5OeQ82|zSPfJoj>=|reE`pxS$f(Q<wSfU-DBI*fMqyTFAd6+9qx|FqMiw?^26l!E
+zOp~J+^&}Ob`a>YbFt`9|A)xex$qO09C1L)X1C<qr$`(w%$k@rv05l&8C#N!5OM;Ao
+zxz8svue1WlPv>M|Xq)_yX*rWy%H}TSf6R<OCU>&iGd4^<$u7@Sz%=<Idpyuh?2G}E
+z13A7k8cg=&wC7y`wGQNHrpZ$|l{tSfLWF)yKFDb<SO5(y7|l0XkV|~B0+$4515~DA
+zvLlzdAVy$L?&Q+vgn8=1<bz!1obUjg%*budc>)?7Cnh@rdGHvT+z8}3K;zY6@<AZa
+S1IqK5%*bQUm@wIqM;!o>7fn6@
+
+diff --git a/arch/arm64/kernel/vdso/vdso.so.dbg b/arch/arm64/kernel/vdso/vdso.so.dbg
+index 04772251fcdc132d275575f53110bc120da70344..4e80260cf4722a9fe7aa023ddf92953cc16fd3b1 100755
+GIT binary patch
+delta 1425
+zcmZ8gO=wd=5Z=v8^YUI2+x)jEw4rFN_7{~DtRzvih*EM;2_7UtOH-95(iE&%n}P^}
+zhlIHbCMZ~>qNOK2XoVt05Gh`Yf+PpQf`{}hw9dXatL4pOcXq!0X5Q@V&RTD=x76xo
+zByp+B-O<6k)3l^+p-mfVJC3w!0{?Wm+;z4hc2TT)*o2wXB7l(O&%!maUT_%Ze+`^>
+zssxr}K~2O}aM+=)wnLG3@Bygua9f2qlq}=O@iCRvV4a6~5jOclmyOAf!L03gLi{j*
+zL&O^yy~s*GvIoC={=9zm)H9R6Yd?7<vp6rp$|TQEOitfMdt5US2dvwk+df`hzN2g_
+zyaqFBjA!AE+RjsuarvR4CLzx4JPiqFr=qZ7IIQ&mI77&N;k?Hc=++Xv1UIzENR0}1
+zpU#25VFz%G;^4(YINOX|oqQG7C1S~PT}I4c!&mJDM)&Id7&oDx^ArmGW8?Yh-a;;S
+za|&MS?R*Hn=%*myI*PnOS5UDtk!=_=&!FXC6)2-sGb|@tfDdSG;2czRmWC~~k`QqR
+z6*u}t+)w7r_kfkA6JRQa_>Ea*9lK5>puL1wMA>)Aeq*h&6${=+cwAls`3#x(9BWuM
+z&X7Z?iI}7=5x!!<#|bZ35;bv+{kGuOk#A>PJ7!pT=h53ts)MasYH$mdJmH9}ki0e1
+z5#N!q(Aa5wAAacB6PTMtgkxygOOpA(Sm2v(>=+{Pva!HhvZVM7aS<me+kqV38d_&o
+z{5|3}ruvv{BjU5qFweu8Z)l2U8lc}?pzQ|X(o6o$ftec3N9A}-{C$KM>53O+xggy<
+zp-$!sV|_WcyxshXLz*|inzw`Zz@|6mDNz97$KjZ-Q>%#vN5OaMi+WQONNP7M`NFW`
+zYt^!}lZ86+Dr8AL4Bh^IO}<==<&SEzmJ3itYlDuw0d=(Gy`&)$h-$KmNywm;qSL3K
+y8i?^c)Ny_UkzkDff(*_rPz}bkyl&<_3!A|xZ$Kmz)8fr0b_6CuQ9cFLP}g72jm#bZ
+
+delta 1435
+zcmZ8hO=uHQ5PokrO|qNNc9U*5drE^~@ux`?YLHfvf<KXprs$=jkhBRUV3TN5DJboF
+z5!+MaTv`w$cu+y4(o69q;vwoKy@&-57V+TGTTbe{-S=YIx9rT$H}mGr&zrSIS|jTb
+ztt}CIWgJExHIAfC<o%8$ct2M%TMxcDp96GxqcMDOhkJ7K2;VF?bHG;aXT8Y2H@vp^
+zp97_bg8T%+oWgD(>?JaOc^VT@$OOF}A8AW)oyN@}zWbWvgq%elB0jPXO=_4TyC+<0
+zaBU5C>1u$Wcm6<08Z((I5#6P7WpN4RImJUB!oKueI$zvglmE!H1FOC?wcw*KN^5XC
+z5Ps~>L7sYO4yOEvWQmN!m~tGR`3Gqm-ujoR1gDh=+;C5cT@V4)dDtwj!}!kNORb|w
+zB{G22Pd^~FxRoeT4Kdpqekf<qdrVEB-zjx6HdCn27b=OuT&21&GP78|RV>{}6iau@
+zv!#VZy*yinmugf_#*<K0Be1U?12u38Q<(@Db`rYWLo7_jpgTx)8S4v8ls2&Tx~z~E
+za>LFr+#{0!$p8%+G>cS+cyMiH7$YNCc9EYgB4HUZy#GMH3^~aNYZL40fi-S_`^c6H
+zKgaQ;=nvm>#lcs|cbDQO-(dA{OU~vwzU9J~IbL)H>fj3b=E5JKy@&k%>$rv2LDh6j
+zy+jOvqax%fG=oM=R7mtxXvG1ep!E)$?-8cxR!o+#`V3RO#>y94^mj)^Xn*lt89uiH
+zccN2?8~0Fl&#?Ngq(X>m-K2yULZXP{P+cYNX&ZGET}R^lNsf!_Am*>Y@fvUMD+$VY
+z7cckSfSPJ}E7f`_US(Hw`%T{`3YIoRlhD-C^aV6S26VKD(m@w&b-)azv>N~E2;K{Y
+zP(radYQZMjh<*r;_aALUXl*dVDMd`!227*W;&o}kCQ70gIoLx<)G`C+KuXE-jI%I3
+ykfwRqM0y|gkbVVIPg4TZdRob=PRsyJJ%v-Zhgi1H!ImI4m{Q*HUu+9vq3AzI)W>}Q
+
+-- 
+2.34.1
+

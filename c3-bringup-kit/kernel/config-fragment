@@ -1,0 +1,13 @@
+# C3 eGPU bring-up config fragment (merge onto tici_defconfig)
+# Usage in kernel build: scripts/config -e ... or merge via kconfig fragment tooling
+CONFIG_PCI=y
+CONFIG_PCI_MSM=y
+CONFIG_PCI_DOMAINS=y
+CONFIG_PCI_DOMAINS_GENERIC=y
+CONFIG_PCI_SYSCALL=y
+CONFIG_PCIEPORTBUS=y
+CONFIG_PCI_MSI=y
+CONFIG_PCI_MSI_IRQ_DOMAIN=y
+# optional: NVMe boot disk if desired
+# CONFIG_NVME_CORE=y
+# CONFIG_BLK_DEV_NVME=y

@@ -20,7 +20,12 @@ def estimate_pickle_max_size(onnx_size):
 # get fastest TG config
 available = set(Device.get_available_devices())
 # FIXME-SP: reset when we bump tg
-if False:  # 'CUDA' in available:
+if os.getenv('EGPU_BACKEND', '').upper() == 'CUDA':
+  # Native PCIe + nvidia.ko + CUDA path for RTX 2080 Ti on C3.
+  # See research/FINAL_REPORT_2.md route gamma-2 for full context.
+  tg_backend = 'CUDA'
+  tg_flags = f'DEV={tg_backend} FLOAT16=1 TC_OPT=2'
+elif 'CUDA' in available:
   tg_backend = 'CUDA'
   tg_flags = f'DEV={tg_backend}'
 elif 'QCOM' in available:

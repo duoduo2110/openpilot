@@ -1,0 +1,59 @@
+From c46ac55458e46b1e8f96cdda8fc1ba7bffed37c9 Mon Sep 17 00:00:00 2001
+From: eGPU-CUDA bringup <onemiless@sp.local>
+Date: Tue, 25 Aug 2026 22:48:09 +0800
+Subject: [PATCH] modeld: EGPU_BACKEND knob - add native-CUDA backend for eGPU
+
+Route gamma-2 from round-2 research (FINAL_REPORT_2.md):
+- custom AGNOS kernel: CONFIG_PCI=y + CONFIG_PCI_MSM=y, DT pcie1 status=ok
+- driver: NVIDIA-Linux-aarch64-535.309.01.run (zero patches vs kernel 4.9.103,
+  compile-verified on tt: nvidia/uvm/drm/modeset/peermem all build)
+- tinygrad CUDA backend sm_75: verified in round 1 (880M @ 32.9 FPS)
+
+EGPU_BACKEND=AMD keeps existing chestnut USB transport unchanged.
+---
+ openpilot/selfdrive/modeld/SConscript | 19 ++++++++++++++++---
+ 1 file changed, 16 insertions(+), 3 deletions(-)
+
+diff --git a/openpilot/selfdrive/modeld/SConscript b/openpilot/selfdrive/modeld/SConscript
+index edfbfa6..9de0a6d 100644
+--- a/openpilot/selfdrive/modeld/SConscript
++++ b/openpilot/selfdrive/modeld/SConscript
+@@ -33,10 +33,17 @@ else:
+   tg_backend = 'CPU'
+   tg_flags = f'DEV=CPU' if arch == 'Darwin' else 'DEV=CPU:LLVM'
+ 
++# Patch B (eGPU-CUDA): backend selection for the external GPU.
++#   EGPU_BACKEND=AMD  (default) -> chestnut USB transport, tinygrad AM USBIface
++#   EGPU_BACKEND=CUDA           -> native PCIe enumeration + nvidia.ko + libcuda
++# Key names ('usbgpu') are kept stable so modeld.py/helpers.py stay untouched.
++EGPU_BACKEND = os.getenv('EGPU_BACKEND', 'AMD').upper()
++assert EGPU_BACKEND in ('AMD', 'CUDA'), f"unsupported EGPU_BACKEND {EGPU_BACKEND}"
++
+ tg_devices = { # which device to put jit inputs to at runtime
+   'openpilot.selfdrive.modeld.modeld': {
+     'default': {'WARP_DEV': tg_backend, 'QUEUE_DEV': tg_backend},
+-    'usbgpu': {'WARP_DEV': tg_backend, 'QUEUE_DEV': 'AMD'}
++    'usbgpu': {'WARP_DEV': tg_backend, 'QUEUE_DEV': EGPU_BACKEND}
+   },
+   'openpilot.selfdrive.modeld.dmonitoringmodeld': {
+     'default': {'DEV': tg_backend}
+@@ -45,8 +52,14 @@ tg_devices = { # which device to put jit inputs to at runtime
+ 
+ USBGPU = usbgpu_present()
+ if USBGPU:
+-  usbgpu_tg_flags = f'DEBUG=2 DEV=USB+AMD:LLVM WARP_DEV={tg_backend} FLOAT16=1 JIT_BATCH_SIZE=0 GMMU=0 TC_OPT=2'
+-  # the USB+AMD GPU takes an exclusive flock; serialize all targets that touch it
++  if EGPU_BACKEND == 'CUDA':
++    # native PCIe path: custom AGNOS kernel (CONFIG_PCI=y + CONFIG_PCI_MSM=y,
++    # DT &pcie1 status="ok") enumerates the dGPU as a normal CUDA device.
++    # Build host needs driver + NVRTC; pickle ships sm_75 kernels.
++    usbgpu_tg_flags = f'DEBUG=2 DEV=CUDA WARP_DEV={tg_backend} FLOAT16=1 JIT_BATCH_SIZE=0 GMMU=0 TC_OPT=2'
++  else:
++    usbgpu_tg_flags = f'DEBUG=2 DEV=USB+AMD:LLVM WARP_DEV={tg_backend} FLOAT16=1 JIT_BATCH_SIZE=0 GMMU=0 TC_OPT=2'
++  # serialize all targets that touch the eGPU (exclusive flock)
+   usbgpu_lock = File("models/.usb_gpu.lock").abspath
+ 
+ def write_tg_devices(target, source, env):
+-- 
+2.43.0
+

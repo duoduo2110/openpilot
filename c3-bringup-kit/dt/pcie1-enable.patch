@@ -1,0 +1,18 @@
+--- a/arch/arm64/boot/dts/qcom/comma_common.dtsi
++++ b/arch/arm64/boot/dts/qcom/comma_common.dtsi
+@@ -41,11 +41,8 @@
+ 
+-&pcie0 {
+-	status = "disabled";
+-};
+-
+-&pcie1 {
+-	status = "disabled";
+-};
++/* eGPU bring-up: enable pcie1 (Gen3, MEM 509MB window, SID 0x1c00-0x1c0f).
++ * PERST=GPIO102 CLKREQ=GPIO103 WAKE=GPIO104; power: pcie_1_gdsc + pm8998 L26/L1/S9-NOM.
++ * No hotplug support: GPU must be powered and present before RC probe. */
++&pcie1 {
++	status = "ok";
++};
+ 
