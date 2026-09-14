@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>onemiless/openpilot — c3-dev-sp-egpu（真实 Comma 3 适配分支）</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1f2328;
+    --muted: #59636e;
+    --border: #d1d9e0;
+    --code-bg: #f6f8fa;
+    --link: #0969da;
+    --accent: #0a7cff;
+    --table-stripe: #f6f8fa;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117;
+      --fg: #e6edf3;
+      --muted: #9198a1;
+      --border: #30363d;
+      --code-bg: #161b22;
+      --link: #4493f8;
+      --accent: #4493f8;
+      --table-stripe: #161b22;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0 auto;
+    max-width: 900px;
+    padding: 2rem 1.25rem 4rem;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", Helvetica, Arial, sans-serif;
+    line-height: 1.65;
+    font-size: 16px;
+  }
+  h1, h2, h3, h4 { line-height: 1.3; margin-top: 1.8em; margin-bottom: 0.6em; font-weight: 600; }
+  h1 { font-size: 1.9rem; border-bottom: 1px solid var(--border); padding-bottom: .4em; margin-top: .6em; }
+  h2 { font-size: 1.4rem; border-bottom: 1px solid var(--border); padding-bottom: .3em; }
+  h3 { font-size: 1.15rem; }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    background: var(--code-bg);
+    padding: .15em .4em;
+    border-radius: 6px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: .88em;
+  }
+  pre {
+    background: var(--code-bg);
+    padding: 1em;
+    border-radius: 8px;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+  }
+  pre code { background: none; padding: 0; }
+  blockquote {
+    margin: 1em 0;
+    padding: .3em 1em;
+    border-left: 4px solid var(--accent);
+    background: var(--code-bg);
+    color: var(--muted);
+    border-radius: 0 6px 6px 0;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1em 0;
+    display: block;
+    overflow-x: auto;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: .5em .75em;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--code-bg); font-weight: 600; }
+  tbody tr:nth-child(even) { background: var(--table-stripe); }
+  hr { border: 0; border-top: 1px solid var(--border); margin: 2em 0; }
+  ul, ol { padding-left: 1.5em; }
+  li { margin: .3em 0; }
+  .toc { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 1em 1.25em; }
+  .toc ul { margin: .3em 0; }
+  .meta { color: var(--muted); font-size: .92em; }
+</style>
+</head>
+<body>
+
+<h1>onemiless/openpilot — <code>c3-dev-sp-egpu</code>（真实 Comma 3 适配分支）</h1>
+
+<blockquote>
+  本分支在 <strong><code>onemiless/openpilot:dev-sp-egpu</code>（C3XL + UT3G/AMD eGPU）</strong> 基线上，
+  新增<strong>官方真实 Comma 3（C3 / TICI）</strong>硬件适配，同时完整保留 C3XL 现有行为。<br>
+  基线提交：<code>2a69709</code> · 本分支当前头：<code>156a3fb</code> · 更新日期：2026-09-14
+</blockquote>
+
+<nav class="toc">
+  <strong>目录</strong>
+  <ul>
+    <li><a href="#upstream">📦 原仓库信息（Upstream / 来源链）</a></li>
+    <li><a href="#position">🎯 本分支定位</a></li>
+    <li><a href="#c3-changes">🔧 C3 适配改动点（本分支新增）</a></li>
+    <li><a href="#changelog">📋 版本更新记录</a></li>
+    <li><a href="#install">🚘 安装 / 使用</a></li>
+    <li><a href="#safety">⚠️ 安全声明</a></li>
+    <li><a href="#license">Licensing</a></li>
+  </ul>
+</nav>
+
+<hr>
+
+<h2 id="upstream">📦 原仓库信息（Upstream / 来源链）</h2>
+
+<table>
+  <thead>
+    <tr><th>层级</th><th>仓库 · 分支</th><th>说明</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>原始项目</td>
+      <td><a href="https://github.com/commaai/openpilot">commaai/openpilot</a></td>
+      <td>comma.ai 官方开源辅助驾驶系统（MIT License）</td>
+    </tr>
+    <tr>
+      <td>上层框架</td>
+      <td><a href="https://github.com/sunnyhaibin/sunnypilot">sunnyhaibin/sunnypilot</a></td>
+      <td>sunnypilot 主仓库；本分支的功能框架与代码基来源</td>
+    </tr>
+    <tr>
+      <td><strong>直接基线（父仓库）</strong></td>
+      <td><a href="https://github.com/onemiless/openpilot">onemiless/openpilot</a> · <code>dev-sp-egpu</code></td>
+      <td>C3XL 第三方硬件 + UT3G/AMD eGPU 远端推理基座</td>
+    </tr>
+    <tr>
+      <td><strong>本分支</strong></td>
+      <td><a href="https://github.com/duoduo2110/openpilot">duoduo2110/openpilot</a> · <code>c3-dev-sp-egpu</code></td>
+      <td>在基线上叠加真实 Comma 3 适配</td>
+    </tr>
+    <tr>
+      <td>C3XL 行为参考</td>
+      <td><code>mr-one/openpilot</code> · <code>c3xl-dev</code></td>
+      <td>C3XL 已知良好部署行为参照</td>
+    </tr>
+    <tr>
+      <td>C3 行为参照</td>
+      <td><code>GuoJiafeng/openpilot</code> · <code>dev</code> / <code>sp260428tici</code></td>
+      <td>真实 C3 运行基线参照（仅用于对比）</td>
+    </tr>
+  </tbody>
+</table>
+
+<blockquote>
+  ⚠️ 本分支仅面向 <strong>Comma 嵌入式车机硬件（Qualcomm SDM845 + AGNOS）</strong>，
+  与任何 PC / 模拟器运行版本<strong>完全无关</strong>。
+</blockquote>
+
+<hr>
+
+<h2 id="position">🎯 本分支定位</h2>
+
+<p>在同一份代码内，通过 <strong>HardwareProfile（硬件画像）</strong> 干净隔离两套硬件，互不破坏：</p>
+
+<table>
+  <thead>
+    <tr><th>维度</th><th>真实 Comma 3（<code>STANDARD</code>）</th><th>C3XL（<code>C3XL</code>）</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>设备树 model</td><td><code>comma tici</code></td><td><code>comma tici</code>（同名，需显式区分）</td></tr>
+    <tr><td>内部 Panda</td><td>单路 SPI <strong>DOS</strong>（STM32F4，type <code>0x07</code>）</td><td>单路 SPI Tres 兼容固件（STM32H7）</td></tr>
+    <tr><td>驾驶员监控相机</td><td>有 → <code>dmonitoringmodeld</code> 启动</td><td>无 → 禁用视觉 DM</td></tr>
+    <tr><td>音频</td><td>板载 I2S 功放（MAX98357A）→ <code>soundd</code></td><td>GPIO 42 蜂鸣器 → <code>alert_output</code></td></tr>
+    <tr><td>自动下电</td><td>支持（离车自动休眠）</td><td>禁用（仅手动强制关机）</td></tr>
+    <tr><td>行车录像</td><td>正常（<code>encoderd</code> 录制 + rlog）</td><td>精简（关闭路视频/rlog，转 <code>local_diagnosticsd</code>）</td></tr>
+  </tbody>
+</table>
+
+<p><strong>画像归属原则</strong>：C3XL <strong>只能显式指定</strong>，不再由设备树 <code>comma tici</code> 推断；其余一律默认真实 C3。</p>
+
+<hr>
+
+<h2 id="c3-changes">🔧 C3 适配改动点（本分支新增）</h2>
+
+<h3>1. 硬件画像解耦 — <code>openpilot/sunnypilot/hardware/profile.py</code></h3>
+<ul>
+  <li>❌ 移除 <code>return HardwareProfile.C3XL if raw_model == b"comma tici" ...</code> 硬编码。</li>
+  <li>✅ <code>infer_hardware_profile()</code> 无条件返回 <code>HardwareProfile.STANDARD</code>：<code>comma tici</code> / 文件缺失 / 其他机型一律判为真实 C3。</li>
+  <li>✅ C3XL 仅可<strong>显式选择</strong>：<code>/data/hardware_profile</code> 内容写 <code>c3xl</code>、或环境变量 <code>SUNNYPILOT_HARDWARE_PROFILE=c3xl</code>、或显式传参。</li>
+  <li>✅ <code>STANDARD</code> 下 <code>has_driver_camera()</code>、<code>has_amplifier()</code>、<code>allows_automatic_power_down()</code> 均返回 <code>True</code>。</li>
+  <li>✅ <code>resolve_internal_panda_type()</code> <strong>保持不变</strong>：<code>STANDARD</code> 透传原始类型（含 DOS <code>0x07</code>）；<code>C3XL</code> 仅允许 <code>0x00/0x09 → 0x09</code>，其余抛 <code>ValueError</code>（C3XL 保护不放宽）。</li>
+</ul>
+
+<h3>2. Panda 适配层（单路 SPI，无外置 / 多 Panda） — <code>openpilot/selfdrive/pandad/</code></h3>
+<ul>
+  <li><code>pandad.h</code>：<code>SUPPORTED_PANDA_TYPES</code> 追加 <code>cereal::PandaState::PandaType::DOS</code>；保留原有 <code>RED_PANDA / TRES / CUATRO</code>。</li>
+  <li><code>pandad.py</code>：
+    <ul>
+      <li>恢复动态 MCU 签名：<code>get_expected_signature(panda)</code> → <code>panda.get_mcu_type().config.app_fn</code>，移除 <code>McuType.H7</code> 硬编码。</li>
+      <li>新增 <code>Panda.DEPRECATED_DEVICES</code> 跳过刷写，<strong>避免把 H7 固件误刷进 STM32F4 DOS</strong>。</li>
+      <li>新增空签名保护（<code>fw_signature == b""</code> 直接跳过），避免异常路径误刷。</li>
+      <li>保留 <code>InternalPanda</code> 单实例 + <code>assert len(panda_serials) == 1</code> 单路 SPI 架构，不引入 USB / 多 Panda 逻辑。</li>
+    </ul>
+  </li>
+</ul>
+
+<h3>3. 外设 / 进程协同 — <code>openpilot/system/manager/process_config.py</code>（核对确认，无需改码）</h3>
+<ul>
+  <li><code>STANDARD</code>：<code>soundd</code>、<code>dmonitoringmodeld</code> / <code>dmonitoringd</code> 按标准策略拉起（<code>visual_driver_monitoring = has_driver_camera() and driverview</code>）。</li>
+  <li><code>use_external_buzzer</code> 仍为 <code>not PC and HardwareProfile.C3XL</code>，<code>alert_output</code>（GPIO42）<strong>仅 C3XL 生效</strong>。</li>
+  <li><code>local_diagnosticsd</code>、<code>record_route_video</code> 仍按 C3XL 隔离。</li>
+</ul>
+
+<h3>4. 红线约束（未触碰）</h3>
+<ul>
+  <li>未修改任何 Panda <strong>安全规则（Safety Models）</strong>与控车逻辑。</li>
+  <li>未引入外置 USB Panda / 多 Panda 逻辑；未引入任何 PC 运行分支。</li>
+</ul>
+
+<h3>5. 验证</h3>
+<ul>
+  <li>Docker（<code>python:3.12-slim</code>）全量单测：<strong>32 passed</strong>（<code>test_profile</code> 19 + <code>test_panda_startup</code> 6 + <code>test_alert_output</code> 7）。</li>
+  <li>双画像脚本校验：<code>STANDARD</code> 三能力全 <code>True</code>、<code>C3XL</code> 全 <code>False</code>；<code>infer(comma tici) == STANDARD</code>；<code>resolve(0x07, STANDARD) == 0x07</code>、<code>resolve(0x07, C3XL)</code> 抛 <code>ValueError</code>。</li>
+  <li>⚠️ <strong>尚未实机验证</strong>：真 C3 上 <code>./pandad</code> 连通单路 SPI DOS、<code>soundd</code> 出声、<code>dmonitoringmodeld</code> 拉起、熄火自动休眠。</li>
+</ul>
+
+<hr>
+
+<h2 id="changelog">📋 版本更新记录</h2>
+
+<h3><code>v1.0.0-c3</code> — 真实 Comma 3 硬件适配（2026-09-14，本分支新增）</h3>
+
+<table>
+  <thead><tr><th>项</th><th>内容</th></tr></thead>
+  <tbody>
+    <tr><td>提交</td><td><code>156a3fb</code> c3: restore STANDARD default and single SPI DOS panda support</td></tr>
+    <tr><td>改动文件</td><td>4 个：<code>profile.py</code>、<code>test_profile.py</code>、<code>pandad.h</code>、<code>pandad.py</code></td></tr>
+    <tr><td>新增能力</td><td>真实 C3 默认画像、单路 DOS Panda 放行、动态 MCU 签名、防误刷保护</td></tr>
+    <tr><td>保持隔离</td><td>C3XL 画像 / 蜂鸣器 / 精简录像 / 禁用自动下电 全部不变</td></tr>
+    <tr><td>验证</td><td>Docker pytest 32 passed；语法编译通过</td></tr>
+    <tr><td>状态</td><td>代码层完成，<strong>待真机验证</strong></td></tr>
+  </tbody>
+</table>
+
+<p><strong>改动明细</strong></p>
+<ul>
+  <li><code>profile.py</code>：删除 <code>comma tici → C3XL</code> 硬编码；<code>infer_hardware_profile()</code> 改为一律 <code>STANDARD</code>。</li>
+  <li><code>test_profile.py</code>：<code>test_missing_profile_defaults_raw_tici_hardware_to_c3xl</code> → <code>..._to_standard</code>，断言改为 <code>STANDARD</code>。</li>
+  <li><code>pandad.h</code>：<code>SUPPORTED_PANDA_TYPES</code> 追加 <code>DOS</code>。</li>
+  <li><code>pandad.py</code>：动态 <code>get_expected_signature(panda)</code>；<code>DEPRECATED_DEVICES</code> 跳过刷写；空签名保护。</li>
+</ul>
+
+<h3><code>v0.9.1</code> — 基线收尾（2026-09-08 ~ 2026-09-13，继承自 <code>onemiless/openpilot:dev-sp-egpu</code>）</h3>
+<ul>
+  <li><strong>相机</strong>：<code>camerad: add verified opt-in C3XL IFE road resize</code>（<code>2a69709</code>，2026-09-13）— C3XL 可选 IFE 1344x760 直出。</li>
+  <li><strong>模型</strong>：<code>models: follow official dev dynamic tinygrad loader</code>（<code>402a400</code>）、<code>modeld: follow dzid26 calibrated camera-offset horizon</code>（<code>ad4eb60</code>）。</li>
+  <li><strong>Tesla</strong>：<code>tesla: vary blindspot ambient alert by severity and light</code>（<code>795d8fd</code>）、<code>tesla: verify ambient alerts through Panda safety</code>（<code>6b1a1a6</code>）。</li>
+  <li><strong>更新器</strong>：<code>updater: expose nav prebuild channel</code>（<code>b82f23a</code>）、<code>updater: support local branch switching and public fork updates</code>（<code>878f5c7</code>）。</li>
+  <li><strong>UI / 诊断</strong>：<code>ui: double dev traffic light icon size</code>（<code>0b58694</code>）、<code>diag(traffic): record raw CAN and displayed lamp state</code>（<code>d172d0c</code>）、<code>fix(ui): refresh traffic lamps from the latest healthy plan</code>（<code>25cca36</code>）。</li>
+</ul>
+
+<h3><code>v0.9.0</code> — C3XL + eGPU 基线（2026-08-24 ~ 2026-09-07，继承自 <code>onemiless/openpilot:dev-sp-egpu</code>）</h3>
+
+<p><strong>eGPU / Chestnut 大模型分流</strong></p>
+<ul>
+  <li><code>egpu: follow official 500us usb polling</code>（<code>b1fb352</code>）、<code>egpu: preserve tested device USB runtime optimizations</code>（<code>51d8e25</code>）、<code>egpu: cap C3XL AMD power at 100W</code>、<code>egpu: separate link and runtime telemetry validity</code>。</li>
+  <li><code>models: integrate upstream v24 warp execution with C3XL compatibility</code>（2026-09-05）、<code>models: fall back to small model on chestnut failure</code> 等分流与降级逻辑。</li>
+  <li><code>usbgpu: isolate UT3G dual runtime identity</code>、<code>modeld: skip USBGPU build until big model is present</code>。</li>
+</ul>
+
+<p><strong>C3XL 硬件画像与发布通道</strong></p>
+<ul>
+  <li><code>hardware: disable automatic C3XL power down</code>（2026-08-28）。</li>
+  <li><code>release: add safe C3XL prebuild channel</code>、<code>release: tolerate C3XL frequency limits</code>、<code>logging: divert C3XL diagnostics from rlog</code>、<code>release: finalize flattened prebuild tree</code>（2026-08-29）。</li>
+  <li><code>ui: expose maintained C3XL update branches</code>（2026-08-27）。</li>
+  <li>⚠️ <code>hardware: infer C3XL when tici profile is missing</code>（2026-09-03）— 该推断已于 <code>v1.0.0-c3</code> 撤销，改为默认 <code>STANDARD</code>。</li>
+</ul>
+
+<p><strong>Tesla 支持</strong></p>
+<ul>
+  <li><code>tesla: replace home upgrade card with vehicle dashboard and red light tests</code>、<code>tesla: flash side-specific ambient lights for blindspot warnings</code>、<code>tesla: keep manual speed override until explicit resume</code>、<code>opendbc: update Tesla HW4 diagnostic definitions</code>。</li>
+</ul>
+
+<p><strong>Traffic 交通灯后端</strong></p>
+<ul>
+  <li><code>traffic: make disabled control use Off instead of online Observe</code>、<code>traffic: bind observations to one successfully decoded CAN frame</code>、<code>traffic: continue bounded green starts past rolling threshold</code>、<code>fix(traffic): confirm flashing green on the second OFF edge</code>、<code>docs: record Traffic correctness and equivalence validation</code>（2026-09-05）。</li>
+</ul>
+
+<p><strong>UI / 资源</strong></p>
+<ul>
+  <li><code>ui: replace empty consumption with vehicle diagnostics</code>、<code>ui: show compact device resources onroad</code>、<code>ui: move eGPU metrics into bottom status strip</code>。</li>
+</ul>
+
+<hr>
+
+<h2 id="install">🚘 安装 / 使用</h2>
+
+<p>本分支为自定义 C3 适配分支，安装方式沿用 sunnypilot 的自定义分支流程：</p>
+<ol>
+  <li>在设备上安装/切换到此自定义分支（<code>duoduo2110/openpilot</code> · <code>c3-dev-sp-egpu</code>）。</li>
+  <li><strong>真实 C3</strong>：无需额外操作，设备树为 <code>comma tici</code> 时自动判为 <code>STANDARD</code>。</li>
+  <li><strong>C3XL</strong>：必须显式写入 <code>echo c3xl &gt; /data/hardware_profile</code>（或设置 <code>SUNNYPILOT_HARDWARE_PROFILE=c3xl</code>），否则会被判为真实 C3。</li>
+</ol>
+
+<blockquote>建议先备份原系统并记录 Panda 固件版本，异常时可回滚。</blockquote>
+
+<hr>
+
+<h2 id="safety">⚠️ 安全声明</h2>
+
+<p>本软件为 <strong>ALPHA 级研究用途</strong>，非产品。使用者须自行遵守当地法律法规，风险自负。本分支未修改任何 Panda 安全规则与控车逻辑，但<strong>任何硬件适配改动仍需实车充分验证</strong>。</p>
+
+<hr>
+
+<h2 id="license">Licensing</h2>
+
+<p>本分支继承 sunnypilot / openpilot 的 MIT 许可。包含原创工作，以及大量来自 <a href="https://github.com/commaai/openpilot">openpilot by comma.ai</a> 的代码（MIT，附带额外免责声明）。</p>
+
+<blockquote>
+  openpilot is released under the MIT license. Some parts of the software are released under other licenses as specified.<br><br>
+  Any user of this software shall indemnify and hold harmless Comma.ai, Inc. and its directors, officers, employees, agents, stockholders, affiliates, subcontractors and customers from and against all allegations, claims, actions, suits, demands, damages, liabilities, obligations, losses, settlements, judgments, costs and expenses (including without limitation attorneys’ fees and costs) which arise out of, relate to or result from any use of this software by user.<br><br>
+  <strong>THIS IS ALPHA QUALITY SOFTWARE FOR RESEARCH PURPOSES ONLY. THIS IS NOT A PRODUCT.
+  YOU ARE RESPONSIBLE FOR COMPLYING WITH LOCAL LAWS AND REGULATIONS.
+  NO WARRANTY EXPRESSED OR IMPLIED.</strong>
+</blockquote>
+
+<p>完整许可条款见 <a href="LICENSE"><code>LICENSE</code></a>。</p>
+
+</body>
+</html>
