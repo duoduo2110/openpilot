@@ -6,7 +6,7 @@ import time
 import signal
 import subprocess
 
-from panda import Panda, PandaDFU, PandaProtocolMismatch, McuType, FW_PATH
+from panda import Panda, PandaDFU, PandaProtocolMismatch, FW_PATH
 from openpilot.common.basedir import BASEDIR
 from openpilot.common.params import Params
 from openpilot.common.hardware import HARDWARE
@@ -17,9 +17,13 @@ from openpilot.sunnypilot.hardware.panda import InternalPanda
 from openpilot.sunnypilot.hardware.panda_startup import PandaStartup, PandaStartupResult
 
 
-def get_expected_signature() -> bytes:
-  fn = os.path.join(FW_PATH, McuType.H7.config.app_fn)
-  return Panda.get_signature_from_firmware(fn)
+def get_expected_signature(panda: Panda) -> bytes:
+  try:
+    fn = os.path.join(FW_PATH, panda.get_mcu_type().config.app_fn)
+    return Panda.get_signature_from_firmware(fn)
+  except Exception:
+    cloudlog.exception("Error computing expected signature")
+    return b""
 
 def flash_panda(panda_serial: str):
   # check_panda_support has already selected the one internal Panda. Keep the
@@ -36,7 +40,19 @@ def flash_panda(panda_serial: str):
     panda.close()
     return
 
-  fw_signature = get_expected_signature()
+  # skip flashing deprecated devices to avoid writing H7 firmware into an STM32F4 DOS
+  hw_type = panda.get_type()
+  if hw_type in Panda.DEPRECATED_DEVICES:
+    cloudlog.warning(f"Panda {panda_serial} is deprecated (hw_type: {hw_type.hex()}), skipping flash...")
+    panda.close()
+    return
+
+  fw_signature = get_expected_signature(panda)
+  if fw_signature == b"":
+    cloudlog.warning(f"Panda {panda_serial} expected signature unavailable, skipping flash...")
+    panda.close()
+    return
+
   internal_panda = panda.is_internal()
 
   panda_version = "bootstub" if panda.bootstub else panda.get_version()

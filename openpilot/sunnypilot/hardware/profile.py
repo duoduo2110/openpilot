@@ -4,8 +4,9 @@ from pathlib import Path
 
 
 # Hardware capabilities belong to the physical device, not to a Git branch.
-# The persistent file is authoritative. A raw `comma tici` model without that
-# file is the C3XL recovery/install case; other hardware keeps upstream defaults.
+# The persistent file (or the explicit/env override) is authoritative: C3XL is
+# only ever selected explicitly. Device tree model is never trusted to select a
+# profile, so missing or `comma tici`/other models all default to STANDARD.
 HARDWARE_PROFILE_FILE = Path(os.getenv("SUNNYPILOT_HARDWARE_PROFILE_FILE", "/data/hardware_profile"))
 HARDWARE_MODEL_FILE = Path(os.getenv("SUNNYPILOT_HARDWARE_MODEL_FILE", "/sys/firmware/devicetree/base/model"))
 
@@ -20,11 +21,11 @@ PANDA_TYPE_TRES = b"\x09"
 
 
 def infer_hardware_profile(model_file: Path | None = None) -> HardwareProfile:
-  try:
-    raw_model = (model_file or HARDWARE_MODEL_FILE).read_bytes().rstrip(b"\x00\r\n ")
-  except OSError:
-    return HardwareProfile.STANDARD
-  return HardwareProfile.C3XL if raw_model == b"comma tici" else HardwareProfile.STANDARD
+  # Device identity is never sufficient to select C3XL: the device tree model
+  # (including `comma tici`) and its absence all default to STANDARD. C3XL must
+  # be selected explicitly via the persistent file, the env override, or a
+  # direct argument so real C3 hardware is not misclassified.
+  return HardwareProfile.STANDARD
 
 
 def get_hardware_profile(value: str | None = None) -> HardwareProfile:

@@ -14,7 +14,7 @@ def test_repository_without_device_override_defaults_standard() -> None:
   assert get_hardware_profile() == HardwareProfile.STANDARD
 
 
-def test_missing_profile_defaults_raw_tici_hardware_to_c3xl(tmp_path, monkeypatch) -> None:
+def test_missing_profile_defaults_raw_tici_hardware_to_standard(tmp_path, monkeypatch) -> None:
   from openpilot.sunnypilot.hardware import profile
 
   profile_file = tmp_path / "missing_hardware_profile"
@@ -23,7 +23,7 @@ def test_missing_profile_defaults_raw_tici_hardware_to_c3xl(tmp_path, monkeypatc
   monkeypatch.setattr(profile, "HARDWARE_PROFILE_FILE", profile_file)
   monkeypatch.setattr(profile, "HARDWARE_MODEL_FILE", model_file, raising=False)
 
-  assert get_hardware_profile() == HardwareProfile.C3XL
+  assert get_hardware_profile() == HardwareProfile.STANDARD
 
 
 @pytest.mark.parametrize("model", [b"comma tizi\x00", b"comma mici\x00", b"unknown\x00"])
