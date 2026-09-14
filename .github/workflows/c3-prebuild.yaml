@@ -1,0 +1,59 @@
+name: c3 prebuild
+
+# 在 C3 真机的 self-hosted runner 上编译，并推送预编译分支。
+# 触发方式：
+#   1) Actions 页面手动 Run workflow（workflow_dispatch）
+#   2) 推送到 c3-dev-sp-egpu，且提交信息包含 [prebuild] 时才构建（避免误触发）
+on:
+  workflow_dispatch:
+    inputs:
+      release_branch:
+        description: "目标预编译分支（孤儿分支）"
+        required: true
+        default: c3-dev-sp-egpu-prebuild
+      build_branch:
+        description: "设备上的临时分支名"
+        required: true
+        default: release-c3-staging
+      include_big_model:
+        description: "是否把 big model 一起打包"
+        type: boolean
+        default: false
+  push:
+    branches: [c3-dev-sp-egpu]
+
+concurrency:
+  group: c3-prebuild-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # push 触发时，只有提交信息含 [prebuild] 才真正构建
+    if: github.event_name != 'push' || contains(github.event.head_commit.message, '[prebuild]')
+    runs-on: [self-hosted, tici]
+    permissions:
+      contents: write
+    env:
+      BUILD_DIR: /data/openpilot
+      BUILD_BRANCH: ${{ inputs.build_branch || 'release-c3-staging' }}
+      RELEASE_BRANCH: ${{ inputs.release_branch || 'c3-dev-sp-egpu-prebuild' }}
+      INCLUDE_BIG_MODEL: ${{ inputs.include_big_model && '1' || '' }}
+    steps:
+      - name: 预检运行环境
+        run: |
+          echo "runner=$(hostname) arch=$(uname -m)"
+          test "$(uname -m)" = "aarch64" || { echo "::error::必须在 C3/tici (aarch64) 真机上运行"; exit 1; }
+          command -v scons >/dev/null 2>&1 || test -x /usr/local/venv/bin/scons || { echo "::error::未找到 scons"; exit 1; }
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: 拉取 LFS 对象
+        run: git lfs pull
+
+      - name: 编译并推送预编译分支
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          tools/release/build_release.sh
