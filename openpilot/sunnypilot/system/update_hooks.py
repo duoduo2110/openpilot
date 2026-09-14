@@ -5,8 +5,8 @@ from pathlib import Path
 
 CommandRunner = Callable[[list[str], str | Path], str]
 
-LOCAL_UPDATE_BRANCHES = ("dev-sp-egpu", "dev-sp-egpu-prebuild", "navassist-track-p0", "dev-sp-nav-prebuild")
-LOCAL_UPDATE_URL = "https://github.com/onemiless/openpilot.git"
+LOCAL_UPDATE_BRANCHES = ("dev-sp-egpu", "dev-sp-egpu-prebuild", "c3-dev-sp-egpu", "c3-dev-sp-egpu-prebuild", "navassist-track-p0", "dev-sp-nav-prebuild")
+LOCAL_UPDATE_URL = "https://github.com/duoduo2110/openpilot.git"
 
 
 def available_update_branches(current: str, cached: str) -> list[str]:

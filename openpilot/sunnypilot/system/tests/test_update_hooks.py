@@ -130,11 +130,13 @@ def test_fetch_switches_between_flattened_prebuild_and_source_submodules(tmp_pat
   git(origin, "add", ".")
   git(origin, "commit", "-m", "flattened")
   git(origin, "branch", "dev-sp-nav-prebuild")
+  git(origin, "branch", "c3-dev-sp-egpu-prebuild")
   git(origin, "checkout", "-b", "dev-sp-egpu")
   git(origin, "rm", "-r", "prebuilt", "module")
   git(origin, "submodule", "add", str(sub), "module")
   git(origin, "commit", "-am", "source")
   git(origin, "branch", "navassist-track-p0")
+  git(origin, "branch", "c3-dev-sp-egpu")
   staging = tmp_path / "staging"
   git(tmp_path, "clone", "--recurse-submodules", "-b", start, str(origin), str(staging))
   monkeypatch.setattr(update_hooks, "LOCAL_UPDATE_URL", str(origin))
@@ -147,6 +149,6 @@ def test_fetch_switches_between_flattened_prebuild_and_source_submodules(tmp_pat
   updater.fetch_update()
   assert git(staging, "branch", "--show-current").strip() == target
   assert (staging / "module/code.py").read_text() == "value = 1\n"
-  flattened = target in ("dev-sp-egpu-prebuild", "dev-sp-nav-prebuild")
+  flattened = target in ("dev-sp-egpu-prebuild", "dev-sp-nav-prebuild", "c3-dev-sp-egpu-prebuild")
   assert (staging / "prebuilt").exists() == flattened
   assert (staging / ".gitmodules").exists() != flattened

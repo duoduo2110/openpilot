@@ -1,4 +1,4 @@
-from openpilot.sunnypilot.hardware.branches import C3XL_COMPATIBLE_BRANCHES, is_prebuild_branch, selectable_tici_branches
+from openpilot.sunnypilot.hardware.branches import COMPATIBLE_BRANCHES, C3XL_COMPATIBLE_BRANCHES, is_prebuild_branch, selectable_tici_branches
 from openpilot.sunnypilot.hardware.profile import HardwareProfile
 from openpilot.common.version import TICI_COMPATIBLE_BRANCHES
 
@@ -11,6 +11,8 @@ REMOTE_BRANCHES = [
   "master-new",
   "release-tici",
   "staging-tici",
+  "c3-dev-sp-egpu",
+  "c3-dev-sp-egpu-prebuild",
 ]
 
 
@@ -27,11 +29,13 @@ def test_standard_tici_keeps_upstream_tici_suffix_filter() -> None:
   assert selectable_tici_branches(REMOTE_BRANCHES, HardwareProfile.STANDARD) == [
     "release-tici",
     "staging-tici",
+    "c3-dev-sp-egpu",
+    "c3-dev-sp-egpu-prebuild",
   ]
 
 
 def test_build_metadata_uses_the_same_c3xl_allowlist() -> None:
-  assert TICI_COMPATIBLE_BRANCHES == frozenset(C3XL_COMPATIBLE_BRANCHES)
+  assert TICI_COMPATIBLE_BRANCHES == frozenset(COMPATIBLE_BRANCHES)
 
 
 def test_prebuild_spelling_is_grouped_with_upstream_prebuilt_branches() -> None:
