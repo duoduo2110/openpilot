@@ -100,7 +100,9 @@ class UnknownCanObserver:
   def _run(self) -> None:
     sock = messaging.sub_sock("can", conflate=False, timeout=250)
     while True:
-      event = messaging.recv_one_or_none(sock)
+      # recv_one() honours the socket timeout; recv_one_or_none() is
+      # non-blocking and without a sleep would spin a core at 100%.
+      event = messaging.recv_one(sock)
       if event is None:
         continue
       self.update([(event.logMonoTime, [(frame.address, bytes(frame.dat), frame.src) for frame in event.can])])
