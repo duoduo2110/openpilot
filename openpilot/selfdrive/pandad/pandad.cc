@@ -142,9 +142,13 @@ void fill_panda_state(cereal::PandaState::Builder &ps, cereal::PandaState::Panda
   ps.setSpiErrorCount(health.spi_error_count_pkt);
   ps.setSbu1Voltage(health.sbu1_voltage_mV / 1000.0f);
   ps.setSbu2Voltage(health.sbu2_voltage_mV / 1000.0f);
-  ps.setSoundOutputLevel(health.sound_output_level_pkt);
-  ps.setControlsAllowedLateral(health.controls_allowed_sp_pkt & 1);
-  ps.setControlsAllowedLongitudinal((health.controls_allowed_sp_pkt >> 1) & 1);
+  // The F4-era panda firmware used by the comma three reports split controls in
+  // two dedicated bytes and has no sound-output-level field: that field belongs
+  // to the H7/C3XL buzzer path, while a comma three plays alerts through its I2S
+  // amplifier. Keep publishing both so downstream consumers see a stable schema.
+  ps.setSoundOutputLevel(0);
+  ps.setControlsAllowedLateral(health.controls_allowed_lateral_pkt & 1);
+  ps.setControlsAllowedLongitudinal(health.controls_allowed_longitudinal_pkt & 1);
 }
 
 void fill_panda_can_state(cereal::PandaState::PandaCanState::Builder &cs, const can_health_t &can_health) {
