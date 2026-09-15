@@ -13,6 +13,14 @@
 
 const bool PANDAD_MAXOUT = getenv("PANDAD_MAXOUT") != nullptr;
 
+// Classic-CAN pandas carry an 8-byte payload in their CANPacket_t. Mirror the
+// panda library's F4_DEVICES (White/Black/DOS) so outgoing frames can be capped
+// per attached device.
+static bool is_classic_can_panda(cereal::PandaState::PandaType hw_type) {
+  using PT = cereal::PandaState::PandaType;
+  return hw_type == PT::WHITE_PANDA || hw_type == PT::BLACK_PANDA || hw_type == PT::DOS;
+}
+
 Panda::Panda(std::string serial) {
   // try USB first, then SPI
   try {
@@ -203,8 +211,16 @@ void Panda::pack_can_buffer(const capnp::List<cereal::CanData>::Reader &can_data
       continue;
     }
     auto can_data = cmsg.getDat();
+    // One host binary serves both MCU families, so the classic-CAN 8-byte cap
+    // has to be a runtime property of the attached panda: a larger payload
+    // would be mis-parsed (or overflow the packet) on an F4/DOS device.
+    const size_t max_payload = is_classic_can_panda(hw_type) ? 8U : 64U;
+    if (can_data.size() > max_payload) {
+      LOGE("dropping CAN message: %zu payload bytes exceed the %zu-byte limit for %s",
+           can_data.size(), max_payload, hw_serial().c_str());
+      continue;
+    }
     uint8_t data_len_code = len_to_dlc(can_data.size());
-    assert(can_data.size() <= 64);
     assert(can_data.size() == dlc_to_len[data_len_code]);
 
     can_header header = {};

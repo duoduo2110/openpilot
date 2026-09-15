@@ -32,15 +32,39 @@ def flash_panda(panda_serial: str) -> Panda:
 
   fw_signature = get_expected_signature(panda)
   internal_panda = panda.is_internal()
+  hw_type = panda.get_type()
+
+  # skip flashing if the detected device is deprecated from upstream
+  if hw_type in Panda.DEPRECATED_DEVICES:
+    cloudlog.warning(f"Panda {panda_serial} is deprecated (hw_type: {hw_type}), skipping flash...")
+    return panda
+
+  # Cross-check the image we would program against the type the device reports.
+  # An STM32F4 (DOS/White/Black) must only ever receive the F4 image: writing H7
+  # firmware into an STM32F4 would brick it, so refuse on any mismatch instead of
+  # trusting a single mapping table.
+  if hw_type in Panda.F4_DEVICES:
+    expected_app_fn = "panda.bin.signed"
+  elif hw_type in Panda.H7_DEVICES:
+    expected_app_fn = "panda_h7.bin.signed"
+  else:
+    cloudlog.warning(f"Panda {panda_serial} unknown hw type (hw_type: {hw_type}), skipping flash...")
+    return panda
+
+  mcu_type = panda.get_mcu_type()
+  app_fn = mcu_type.config.app_fn
+  if app_fn != expected_app_fn:
+    cloudlog.error(f"Panda {panda_serial} refusing to flash: hw type {hw_type} expects {expected_app_fn} but {mcu_type} maps to {app_fn}")
+    return panda
 
   panda_version = "bootstub" if panda.bootstub else panda.get_version()
   panda_signature = b"" if panda.bootstub else panda.get_signature()
-  cloudlog.warning(f"Panda {panda_serial} connected, version: {panda_version}, signature {panda_signature.hex()[:16]}, expected {fw_signature.hex()[:16]}")
+  cloudlog.warning(f"Panda {panda_serial} connected, hw_type: {hw_type}, image: {app_fn}, version: {panda_version}, signature {panda_signature.hex()[:16]}, expected {fw_signature.hex()[:16]}")
 
-  # skip flashing if the detected device is deprecated from upstream
-  hw_type = panda.get_type()
-  if hw_type in Panda.DEPRECATED_DEVICES:
-    cloudlog.warning(f"Panda {panda_serial} is deprecated (hw_type: {hw_type}), skipping flash...")
+  # An unavailable expected signature means we cannot tell whether the on-device
+  # firmware is current. Treat that as "do not flash", never as "out of date".
+  if fw_signature == b"":
+    cloudlog.warning(f"Panda {panda_serial} expected signature unavailable for {app_fn}, skipping flash...")
     return panda
 
   if panda.bootstub or panda_signature != fw_signature:

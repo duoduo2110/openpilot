@@ -33,11 +33,13 @@ static_assert(offsetof(health_t, controls_allowed_lateral_pkt) == 58, "C3 health
 static_assert(offsetof(health_t, controls_allowed_longitudinal_pkt) == 59, "C3 health_t offset changed");
 static_assert(sizeof(can_health_t) == 64, "can_health_t layout changed");
 static_assert(sizeof(can_header) == 6, "CAN header layout changed");
-#ifndef CANFD
-// The F4/DOS panda is a classic-CAN device: an 8-byte payload in a 16-byte packet.
-static_assert(CANPACKET_DATA_SIZE_MAX == 8, "F4 panda must use classic CAN packets");
-static_assert(sizeof(CANPacket_t) == 16, "F4 CANPacket_t layout changed");
-#endif
+// Classic-CAN (DOS/F4) panda ABI: 6-byte header, 8-byte payload, 16-byte packet.
+// A single host binary serves both MCU families, so "8 bytes for F4 / 64 for H7"
+// can only be enforced per attached device at runtime (Panda::pack_can_buffer).
+// These asserts pin the wiring that the runtime cap relies on.
+static_assert(CANPACKET_HEAD_SIZE == 6, "CAN header layout changed");
+static_assert(CANPACKET_DATA_SIZE_MAX >= 8U, "classic CAN payload must be representable");
+static_assert(sizeof(can_header) == CANPACKET_HEAD_SIZE, "host CAN header must match the wire header");
 
 ExitHandler do_exit;
 
