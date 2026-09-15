@@ -2,6 +2,7 @@
 
 #include <unistd.h>
 
+#include <algorithm>
 #include <cassert>
 #include <stdexcept>
 #include <vector>
@@ -13,9 +14,18 @@
 const bool PANDAD_MAXOUT = getenv("PANDAD_MAXOUT") != nullptr;
 
 Panda::Panda(std::string serial) {
-  // The comma three talks to its single internal panda over USB only.
-  handle = std::make_unique<PandaUsbHandle>(serial);
-  LOGW("connected to %s over USB", serial.c_str());
+  // try USB first, then SPI
+  try {
+    handle = std::make_unique<PandaUsbHandle>(serial);
+    LOGW("connected to %s over USB", serial.c_str());
+  } catch (std::exception &e) {
+#ifndef __APPLE__
+    handle = std::make_unique<PandaSpiHandle>(serial);
+    LOGW("connected to %s over SPI", serial.c_str());
+#else
+    throw e;
+#endif
+  }
 
   hw_type = get_hw_type();
   can_reset_communications();
@@ -33,25 +43,19 @@ std::string Panda::hw_serial() {
   return handle->hw_serial;
 }
 
-std::vector<std::string> Panda::list() {
-  // Only enumerate the comma three's internal panda over USB. External USB
-  // pandas and the SPI transport are intentionally ignored.
-  std::vector<std::string> serials;
-  for (const auto &serial : PandaUsbHandle::list()) {
-    try {
-      PandaUsbHandle usb_handle(serial);
-      unsigned char hw_query[1] = {0};
-      usb_handle.control_read(0xc1, 0, 0, hw_query, 1, 100);
-      auto usb_hw_type = (cereal::PandaState::PandaType)(hw_query[0]);
-      if (usb_hw_type == cereal::PandaState::PandaType::DOS ||
-          usb_hw_type == cereal::PandaState::PandaType::TRES ||
-          usb_hw_type == cereal::PandaState::PandaType::CUATRO) {
-        serials.push_back(serial);
+std::vector<std::string> Panda::list(bool usb_only) {
+  std::vector<std::string> serials = PandaUsbHandle::list();
+
+#ifndef __APPLE__
+  if (!usb_only) {
+    for (const auto &s : PandaSpiHandle::list()) {
+      if (std::find(serials.begin(), serials.end(), s) == serials.end()) {
+        serials.push_back(s);
       }
-    } catch (std::exception &e) {
-      LOGW("failed to query panda %s over USB: %s", serial.c_str(), e.what());
     }
   }
+#endif
+
   return serials;
 }
 
@@ -132,31 +136,17 @@ std::optional<std::string> Panda::get_serial() {
   return err >= 0 ? std::make_optional(serial_buf) : std::nullopt;
 }
 
-// This tree only builds the F4 application for the comma three's internal DOS
-// panda. Resolve the expected firmware image from the detected hardware type
-// and never read or select the H7 image.
-static const char *app_fn_for_hw_type(cereal::PandaState::PandaType panda_hw_type) {
-  switch (panda_hw_type) {
-    case cereal::PandaState::PandaType::WHITE_PANDA:
-    case cereal::PandaState::PandaType::BLACK_PANDA:
-    case cereal::PandaState::PandaType::DOS:
-      return "panda.bin.signed";
-    default:
-      return nullptr;
-  }
-}
-
+// Resolve the expected firmware image dynamically from the actual device
+// firmware signature: check both the F4 (panda.bin.signed) and H7
+// (panda_h7.bin.signed) artifacts instead of hardcoding an MCU type.
 bool Panda::up_to_date() {
-  const char *app_fn = app_fn_for_hw_type(hw_type);
-  if (app_fn == nullptr) {
-    return false;
-  }
-
   if (auto fw_sig = get_firmware_version()) {
-    auto content = util::read_file(std::string("../../../panda/board/obj/") + app_fn);
-    if (content.size() >= fw_sig->size() &&
-        memcmp(content.data() + content.size() - fw_sig->size(), fw_sig->data(), fw_sig->size()) == 0) {
-      return true;
+    for (auto fn : { "panda.bin.signed", "panda_h7.bin.signed" }) {
+      auto content = util::read_file(std::string("../../../panda/board/obj/") + fn);
+      if (content.size() >= fw_sig->size() &&
+          memcmp(content.data() + content.size() - fw_sig->size(), fw_sig->data(), fw_sig->size()) == 0) {
+        return true;
+      }
     }
   }
   return false;
