@@ -278,7 +278,9 @@ Export('messaging')
 
 
 # Build other submodules
-SConscript(['panda/SConscript'])
+# The comma three uses its onboard DOS/F4 panda firmware as-is. The current
+# panda firmware no longer fits the F4 target, and pandad deliberately skips
+# firmware validation/flashing for F4 devices, so don't build panda firmware.
 
 # Build rednose library
 SConscript(['rednose_repo/rednose/SConscript'])
