@@ -21,12 +21,17 @@ public:
   }
 
   static cereal::InitData::DeviceType get_device_type() {
+    // A C3XL keeps a comma three reporting as TIZI through the profile check
+    // below. A plain comma three reports model "tici" and must also map to
+    // TIZI, so the "tici" entry is required (the XL lineage dropped it, which
+    // aborted pandad on real comma three hardware).
     if ((get_name() == "tici") && sunnypilot::hardware::is_c3xl()) {
       return cereal::InitData::DeviceType::TIZI;
     }
 
     static const std::map<std::string, cereal::InitData::DeviceType> device_map = {
       {"tizi", cereal::InitData::DeviceType::TIZI},
+      {"tici", cereal::InitData::DeviceType::TIZI},
       {"mici", cereal::InitData::DeviceType::MICI}
     };
     static const auto it = device_map.find(get_name());
