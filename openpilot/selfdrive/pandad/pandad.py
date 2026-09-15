@@ -34,16 +34,27 @@ def flash_panda(panda_serial: str):
   effective_type = panda.get_type()
   cloudlog.info(f"Panda {panda_serial} hardware type raw={raw_type.hex()} effective={effective_type.hex()}")
 
-  # skip flashing if the detected panda is not supported
-  if effective_type not in Panda.SUPPORTED_DEVICES:
+  # Skip unsupported hardware. Older panda libraries (the F4-capable ones used
+  # by comma three) don't publish SUPPORTED_DEVICES, only the F4/H7 families.
+  supported_devices = getattr(Panda, "SUPPORTED_DEVICES", None)
+  if supported_devices is None:
+    supported_devices = tuple(getattr(Panda, "F4_DEVICES", ())) + tuple(getattr(Panda, "H7_DEVICES", ()))
+  if effective_type not in supported_devices:
     cloudlog.warning(f"Panda {panda_serial} is not supported (raw_hw_type: {raw_type.hex()}), skipping flash...")
     panda.close()
     return
 
   # skip flashing deprecated devices to avoid writing H7 firmware into an STM32F4 DOS
   hw_type = panda.get_type()
-  if hw_type in Panda.DEPRECATED_DEVICES:
+  if hw_type in tuple(getattr(Panda, "DEPRECATED_DEVICES", ())):
     cloudlog.warning(f"Panda {panda_serial} is deprecated (hw_type: {hw_type.hex()}), skipping flash...")
+    panda.close()
+    return
+
+  # Never program an F4 device: this tree only builds H7 firmware, so a write
+  # would brick the STM32F4 DOS panda in a comma three.
+  if hw_type in tuple(getattr(Panda, "F4_DEVICES", ()) or ()):
+    cloudlog.warning(f"Panda {panda_serial} is an F4 device (hw_type: {hw_type.hex()}), skipping flash...")
     panda.close()
     return
 

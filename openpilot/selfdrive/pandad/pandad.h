@@ -7,12 +7,14 @@
 
 void pandad_main_thread(std::string serial);
 
-// deprecated devices
+// Pandas outside this list keep running with the firmware they already have:
+// the C++ layer skips the firmware-freshness check for them. The comma three's
+// internal DOS (F4) panda relies on that path, because this tree only builds H7
+// firmware and must never write it into an STM32F4.
 static const std::vector<cereal::PandaState::PandaType> SUPPORTED_PANDA_TYPES = {
   cereal::PandaState::PandaType::RED_PANDA,
   cereal::PandaState::PandaType::TRES,
   cereal::PandaState::PandaType::CUATRO,
-  cereal::PandaState::PandaType::DOS,
 };
 
 
