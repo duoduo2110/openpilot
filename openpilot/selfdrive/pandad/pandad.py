@@ -146,11 +146,11 @@ def main() -> None:
       if startup_result == PandaStartupResult.INTERRUPTED:
         break
 
-      # Flash all Pandas in DFU mode
+      # Never auto-program the comma three's internal DOS/F4 panda. This C3
+      # build intentionally uses its onboard firmware as-is and doesn't build
+      # an F4 bootstub. Recovery must therefore be an explicit service action.
       for serial in PandaDFU.list():
-        cloudlog.info(f"Panda in DFU mode found, flashing recovery {serial}")
-        PandaDFU(serial).recover()
-        time.sleep(1)
+        cloudlog.warning(f"Panda in DFU mode found, skipping automatic recovery {serial}")
 
       panda_serials = Panda.list()
       if len(panda_serials):

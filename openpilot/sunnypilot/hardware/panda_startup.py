@@ -49,11 +49,11 @@ class PandaStartup:
 
   def prepare(self, attempt: int, should_exit: Callable[[], bool]) -> PandaStartupResult:
     if self.profile != HardwareProfile.C3XL:
-      if (attempt % 2) == 0:
-        self.io.reset_internal()
-        return PandaStartupResult.RESET
-      self.io.recover_internal()
-      return PandaStartupResult.RECOVER
+      # A comma three uses its onboard DOS/F4 panda firmware as-is. Never put
+      # it into DFU during normal startup; recovery is an explicit service
+      # action and this build intentionally has no F4 firmware to program.
+      self.io.reset_internal()
+      return PandaStartupResult.RESET
 
     self.io.reset_internal()
     deadline = self.io.monotonic() + self.C3XL_APP_TIMEOUT_S

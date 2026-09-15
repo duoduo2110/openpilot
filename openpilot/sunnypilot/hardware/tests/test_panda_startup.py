@@ -38,13 +38,13 @@ class FakePandaStartupIO:
     self.now += seconds
 
 
-def test_standard_profile_preserves_alternating_reset_recover() -> None:
+def test_standard_profile_only_resets_without_entering_recovery() -> None:
   io = FakePandaStartupIO()
   startup = PandaStartup(io, HardwareProfile.STANDARD)
 
   assert startup.prepare(0, lambda: False) == PandaStartupResult.RESET
-  assert startup.prepare(1, lambda: False) == PandaStartupResult.RECOVER
-  assert (io.resets, io.recovers) == (1, 1)
+  assert startup.prepare(1, lambda: False) == PandaStartupResult.RESET
+  assert (io.resets, io.recovers) == (2, 0)
 
 
 def test_c3xl_waits_for_slow_application_without_recovery() -> None:
