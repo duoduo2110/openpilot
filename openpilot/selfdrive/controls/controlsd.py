@@ -223,7 +223,8 @@ class Controls(ControlsExt):
                          (self.sm['selfdriveState'].state == State.softDisabling))
 
     # trigger the car's stock driver monitoring escalation
-    CC.driverMonitoringEscalation = cs.forceDecel
+    if hasattr(CC, "driverMonitoringEscalation"):
+      CC.driverMonitoringEscalation = cs.forceDecel
 
     lat_tuning = self.CP.lateralTuning.which()
     if self.CP.steerControlType == car.CarParams.SteerControlType.angle:

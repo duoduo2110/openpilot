@@ -148,6 +148,9 @@ def _model_geometry(model: object, car_state_sp: object, oem_can: dict[str, obje
   for lead in model.leadsV3:
     if lead.prob >= 0.5 and len(lead.x) and len(lead.y):
       leads.append({"x": _number(lead.x[0]), "y": _number(lead.y[0], 2), "velocity_mps": _number(lead.v[0]), "probability": _number(lead.prob, 2)})
+  # The pinned opendbc revision has no road-context producer; the field may also
+  # be absent from the message, so read it defensively and report it as absent.
+  road_context = getattr(car_state_sp, "teslaRoadContext", None)
   return {
     "path": _line_points(model.position),
     # The inner pair is the current-lane boundary and is the clearest signal on a compact display.
@@ -158,9 +161,9 @@ def _model_geometry(model: object, car_state_sp: object, oem_can: dict[str, obje
     "lane_change_direction": str(model.meta.laneChangeDirection),
     "hard_brake_predicted": bool(model.meta.hardBrakePredicted),
     "oem_traffic": {
-      "available": bool(car_state_sp.teslaRoadContext.available),
-      "light_color": int(car_state_sp.teslaRoadContext.trafficLightColor),
-      "stop_line_distance": _number(car_state_sp.teslaRoadContext.stopLineDistance),
+      "available": bool(road_context.available) if road_context is not None else False,
+      "light_color": int(road_context.trafficLightColor) if road_context is not None else 0,
+      "stop_line_distance": _number(road_context.stopLineDistance) if road_context is not None else None,
     },
     "oem_can": oem_can,
   }

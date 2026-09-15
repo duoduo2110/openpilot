@@ -72,8 +72,11 @@ class TeslaCardAdapter:
     self.road_context_parser = self._create_road_context_parser() if self.enabled else None
     self.lighting_parser = self._create_lighting_parser() if self.enabled else None
     self.speed_limit_assist_configured: bool | None = None
-    configured = bool(getattr(car_interface, "CP_SP", None) and
-                      car_interface.CP_SP.safetyParam & TeslaSafetyFlagsSP.TURN_SIGNAL_VALIDATION)
+    # The pinned opendbc revision may not expose this safety bit; a missing bit
+    # disables one-shot turn-signal validation (fail-closed) instead of raising.
+    turn_signal_validation = int(getattr(TeslaSafetyFlagsSP, "TURN_SIGNAL_VALIDATION", 0))
+    configured = bool(getattr(car_interface, "CP_SP", None) and turn_signal_validation and
+                      car_interface.CP_SP.safetyParam & turn_signal_validation)
     self.validation = TeslaTurnSignalRealtimeController(configured) if self.enabled else None
     self.ambient = AmbientLightingController() if self.enabled else None
 
@@ -173,7 +176,13 @@ class TeslaCardAdapter:
     if self.road_context_parser is None:
       return
 
-    from opendbc.sunnypilot.car.tesla.carstate_ext import publish_tesla_road_context
+    try:
+      from opendbc.sunnypilot.car.tesla.carstate_ext import publish_tesla_road_context
+    except ImportError:
+      # The pinned opendbc revision has no road-context producer.  Disable the
+      # parser so no context is fabricated and the import is not retried.
+      self.road_context_parser = None
+      return
 
     timestamp_ns = self.road_context_parser.ts_nanos["DAS_road"]["DAS_stopLineDist"]
     publish_tesla_road_context(

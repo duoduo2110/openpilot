@@ -69,16 +69,19 @@ class ControlsExt(ModelStateBase):
 
   @staticmethod
   def get_lead_data(_lead, src: log.RadarState.LeadData) -> None:
+    # Older layouts keep aRel/dPath/vLat/fcw at the top level; newer ones moved
+    # them into a `deprecated` group.  Read whichever layout is present.
+    legacy = getattr(src, "deprecated", src)
     _lead.dRel = src.dRel
     _lead.yRel = src.yRel
     _lead.vRel = src.vRel
-    _lead.aRel = src.deprecated.aRel
+    _lead.aRel = legacy.aRel
     _lead.vLead = src.vLead
-    _lead.dPath = src.deprecated.dPath
-    _lead.vLat = src.deprecated.vLat
+    _lead.dPath = legacy.dPath
+    _lead.vLat = legacy.vLat
     _lead.vLeadK = src.vLeadK
     _lead.aLeadK = src.aLeadK
-    _lead.fcw = src.deprecated.fcw
+    _lead.fcw = legacy.fcw
     _lead.status = src.present
     _lead.aLeadTau = src.aLeadTau
     _lead.modelProb = src.modelProb

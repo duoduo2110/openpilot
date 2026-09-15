@@ -1,9 +1,11 @@
 #include "selfdrive/pandad/pandad.h"
 
+#include <algorithm>
 #include <array>
 #include <bitset>
 #include <cassert>
 #include <cerrno>
+#include <cstddef>
 #include <memory>
 #include <thread>
 #include <utility>
@@ -20,6 +22,22 @@
 #define MAX_IR_PANDA_VAL 50
 #define CUTOFF_IL 400
 #define SATURATE_IL 1000
+
+// Compile-time C3 ABI guardrails. The comma three's internal DOS/F4 panda runs
+// firmware whose packet layouts are frozen by the pinned panda/opendbc pair. If
+// either of those moves, fail the build here instead of silently misreading
+// device data or, worse, writing the wrong firmware into an STM32F4.
+static_assert(sizeof(health_t) == 60, "C3 health_t layout changed");
+static_assert(offsetof(health_t, fan_stall_count) == 52, "C3 health_t offset changed");
+static_assert(offsetof(health_t, controls_allowed_lateral_pkt) == 58, "C3 health_t offset changed");
+static_assert(offsetof(health_t, controls_allowed_longitudinal_pkt) == 59, "C3 health_t offset changed");
+static_assert(sizeof(can_health_t) == 64, "can_health_t layout changed");
+static_assert(sizeof(can_header) == 6, "CAN header layout changed");
+#ifndef CANFD
+// The F4/DOS panda is a classic-CAN device: an 8-byte payload in a 16-byte packet.
+static_assert(CANPACKET_DATA_SIZE_MAX == 8, "F4 panda must use classic CAN packets");
+static_assert(sizeof(CANPacket_t) == 16, "F4 CANPacket_t layout changed");
+#endif
 
 ExitHandler do_exit;
 
@@ -142,13 +160,8 @@ void fill_panda_state(cereal::PandaState::Builder &ps, cereal::PandaState::Panda
   ps.setSpiErrorCount(health.spi_error_count_pkt);
   ps.setSbu1Voltage(health.sbu1_voltage_mV / 1000.0f);
   ps.setSbu2Voltage(health.sbu2_voltage_mV / 1000.0f);
-  // The F4-era panda firmware used by the comma three reports split controls in
-  // two dedicated bytes and has no sound-output-level field: that field belongs
-  // to the H7/C3XL buzzer path, while a comma three plays alerts through its I2S
-  // amplifier. Keep publishing both so downstream consumers see a stable schema.
-  ps.setSoundOutputLevel(0);
-  ps.setControlsAllowedLateral(health.controls_allowed_lateral_pkt & 1);
-  ps.setControlsAllowedLongitudinal(health.controls_allowed_longitudinal_pkt & 1);
+  ps.setControlsAllowedLateral(health.controls_allowed_lateral_pkt);
+  ps.setControlsAllowedLongitudinal(health.controls_allowed_longitudinal_pkt);
 }
 
 void fill_panda_can_state(cereal::PandaState::PandaCanState::Builder &cs, const can_health_t &can_health) {

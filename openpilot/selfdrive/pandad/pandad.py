@@ -12,10 +12,6 @@ from openpilot.common.params import Params
 from openpilot.common.hardware import HARDWARE
 from openpilot.common.swaglog import cloudlog
 
-from openpilot.sunnypilot.selfdrive.pandad.rivian_long_flasher import flash_rivian_long
-from openpilot.sunnypilot.hardware.panda import InternalPanda
-from openpilot.sunnypilot.hardware.panda_startup import PandaStartup, PandaStartupResult
-
 
 def get_expected_signature(panda: Panda) -> bytes:
   try:
@@ -25,50 +21,27 @@ def get_expected_signature(panda: Panda) -> bytes:
     cloudlog.exception("Error computing expected signature")
     return b""
 
-def flash_panda(panda_serial: str):
-  # check_panda_support has already selected the one internal Panda. Keep the
-  # C3XL type Adapter scoped to this instance so USB discovery and external
-  # Pandas continue to report their physical type unchanged.
-  panda = InternalPanda(panda_serial)
-  raw_type = panda.get_raw_type()
-  effective_type = panda.get_type()
-  cloudlog.info(f"Panda {panda_serial} hardware type raw={raw_type.hex()} effective={effective_type.hex()}")
 
-  # Skip unsupported hardware. Older panda libraries (the F4-capable ones used
-  # by comma three) don't publish SUPPORTED_DEVICES, only the F4/H7 families.
-  supported_devices = getattr(Panda, "SUPPORTED_DEVICES", None)
-  if supported_devices is None:
-    supported_devices = tuple(getattr(Panda, "F4_DEVICES", ())) + tuple(getattr(Panda, "H7_DEVICES", ()))
-  if effective_type not in supported_devices:
-    cloudlog.warning(f"Panda {panda_serial} is not supported (raw_hw_type: {raw_type.hex()}), skipping flash...")
-    panda.close()
-    return
-
-  # skip flashing deprecated devices to avoid writing H7 firmware into an STM32F4 DOS
-  hw_type = panda.get_type()
-  if hw_type in tuple(getattr(Panda, "DEPRECATED_DEVICES", ())):
-    cloudlog.warning(f"Panda {panda_serial} is deprecated (hw_type: {hw_type.hex()}), skipping flash...")
-    panda.close()
-    return
-
-  # Never program an F4 device: this tree only builds H7 firmware, so a write
-  # would brick the STM32F4 DOS panda in a comma three.
-  if hw_type in tuple(getattr(Panda, "F4_DEVICES", ()) or ()):
-    cloudlog.warning(f"Panda {panda_serial} is an F4 device (hw_type: {hw_type.hex()}), skipping flash...")
-    panda.close()
-    return
+def flash_panda(panda_serial: str) -> Panda:
+  try:
+    panda = Panda(panda_serial)
+  except PandaProtocolMismatch:
+    cloudlog.warning("detected protocol mismatch, reflashing panda")
+    HARDWARE.recover_internal_panda()
+    raise
 
   fw_signature = get_expected_signature(panda)
-  if fw_signature == b"":
-    cloudlog.warning(f"Panda {panda_serial} expected signature unavailable, skipping flash...")
-    panda.close()
-    return
-
   internal_panda = panda.is_internal()
 
   panda_version = "bootstub" if panda.bootstub else panda.get_version()
   panda_signature = b"" if panda.bootstub else panda.get_signature()
   cloudlog.warning(f"Panda {panda_serial} connected, version: {panda_version}, signature {panda_signature.hex()[:16]}, expected {fw_signature.hex()[:16]}")
+
+  # skip flashing if the detected device is deprecated from upstream
+  hw_type = panda.get_type()
+  if hw_type in Panda.DEPRECATED_DEVICES:
+    cloudlog.warning(f"Panda {panda_serial} is deprecated (hw_type: {hw_type}), skipping flash...")
+    return panda
 
   if panda.bootstub or panda_signature != fw_signature:
     cloudlog.info("Panda firmware out of date, update required")
@@ -92,23 +65,7 @@ def flash_panda(panda_serial: str):
     cloudlog.info("Version mismatch after flashing, exiting")
     raise AssertionError
 
-  panda.close()
-
-
-def check_panda_support(panda_serials: list[str]) -> list[str]:
-  spi_serials = set(Panda.spi_list())
-  for serial in panda_serials:
-    if serial in spi_serials:
-      return [serial]
-
-  for serial in panda_serials:
-    panda = Panda(serial)
-    is_internal = panda.is_internal()
-    panda.close()
-    if is_internal:
-      return [serial]
-
-  return []
+  return panda
 
 
 def main() -> None:
@@ -136,45 +93,78 @@ def main() -> None:
     cloudlog.exception("pandad.uncaught_exception")
 
   count = 0
-  panda_startup = PandaStartup()
+  no_internal_panda_count = 0
+
   while not do_exit:
     try:
-      cloudlog.event("pandad.flash_and_connect", count=count)
-      startup_result = panda_startup.prepare(count, lambda: do_exit)
       count += 1
-      cloudlog.event("pandad.panda_startup", result=startup_result.value, count=count)
-      if startup_result == PandaStartupResult.INTERRUPTED:
-        break
+      cloudlog.event("pandad.flash_and_connect", count=count)
 
-      # Never auto-program the comma three's internal DOS/F4 panda. This C3
-      # build intentionally uses its onboard firmware as-is and doesn't build
-      # an F4 bootstub. Recovery must therefore be an explicit service action.
-      for serial in PandaDFU.list():
-        cloudlog.warning(f"Panda in DFU mode found, skipping automatic recovery {serial}")
+      # TODO: remove this in the next AGNOS
+      # wait until USB is up before counting
+      if time.monotonic() < 60.:
+        no_internal_panda_count = 0
+
+      # Handle missing internal panda
+      if no_internal_panda_count > 0:
+        if no_internal_panda_count == 3:
+          cloudlog.info("No pandas found, putting internal panda into DFU")
+          HARDWARE.recover_internal_panda()
+        else:
+          cloudlog.info("No pandas found, resetting internal panda")
+          HARDWARE.reset_internal_panda()
+        time.sleep(3)  # wait to come back up
+
+      # Flash all Pandas in DFU mode
+      dfu_serials = PandaDFU.list()
+      if len(dfu_serials) > 0:
+        for serial in dfu_serials:
+          cloudlog.info(f"Panda in DFU mode found, flashing recovery {serial}")
+          PandaDFU(serial).recover()
+        time.sleep(1)
 
       panda_serials = Panda.list()
-      if len(panda_serials):
-        # custom flasher for xnor's Rivian Longitudinal Upgrade Kit
-        flash_rivian_long(panda_serials)
-        # find the internal supported panda (e.g. skip external Black Panda)
-        panda_serials = check_panda_support(panda_serials)
+      if len(panda_serials) == 0:
+        no_internal_panda_count += 1
+        continue
 
-        assert len(panda_serials) == 1
-        cloudlog.info(f"{len(panda_serials)} panda found, connecting - {panda_serials}")
-        flash_panda(panda_serials[0])
+      cloudlog.info(f"{len(panda_serials)} panda(s) found, connecting - {panda_serials}")
 
-        # run real pandad
-        os.environ['MANAGER_DAEMON'] = 'pandad'
-        process = subprocess.Popen(["./pandad"], cwd=os.path.join(BASEDIR, "openpilot/selfdrive/pandad"))
-        process.wait()
+      # Flash all connected pandas, then keep only the internal one
+      pandas: list[Panda] = []
+      for serial in panda_serials:
+        pandas.append(flash_panda(serial))
+
+      internal_pandas = [panda for panda in pandas if panda.is_internal()]
+      if len(internal_pandas) == 0:
+        for panda in pandas:
+          panda.close()
+        cloudlog.error("Internal panda is missing, trying again")
+        no_internal_panda_count += 1
+        continue
+
+      # this build drives the comma three's single internal panda
+      assert len(internal_pandas) == 1
+      panda_serial = internal_pandas[0].get_usb_serial()
+      for panda in pandas:
+        panda.close()
+      no_internal_panda_count = 0
     # TODO: wrap all panda exceptions in a base panda exception
     except (usb1.USBErrorNoDevice, usb1.USBErrorPipe):
       # a panda was disconnected while setting everything up. let's try again
       cloudlog.exception("Panda USB exception while setting up")
+      continue
     except PandaProtocolMismatch:
       cloudlog.exception("pandad.protocol_mismatch")
+      continue
     except Exception:
       cloudlog.exception("pandad.uncaught_exception")
+      continue
+
+    # run pandad against the internal panda
+    os.environ['MANAGER_DAEMON'] = 'pandad'
+    process = subprocess.Popen(["./pandad", panda_serial], cwd=os.path.join(BASEDIR, "openpilot/selfdrive/pandad"))
+    process.wait()
 
 
 if __name__ == "__main__":

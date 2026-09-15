@@ -13,10 +13,11 @@
 const bool PANDAD_MAXOUT = getenv("PANDAD_MAXOUT") != nullptr;
 
 Panda::Panda(std::string serial) {
-  handle = std::make_unique<PandaSpiHandle>(serial);
-  LOGW("connected to %s over SPI", serial.c_str());
+  // The comma three talks to its single internal panda over USB only.
+  handle = std::make_unique<PandaUsbHandle>(serial);
+  LOGW("connected to %s over USB", serial.c_str());
 
-  hw_type = cereal::PandaState::PandaType::TRES;
+  hw_type = get_hw_type();
   can_reset_communications();
 }
 
@@ -33,7 +34,25 @@ std::string Panda::hw_serial() {
 }
 
 std::vector<std::string> Panda::list() {
-  return PandaSpiHandle::list();
+  // Only enumerate the comma three's internal panda over USB. External USB
+  // pandas and the SPI transport are intentionally ignored.
+  std::vector<std::string> serials;
+  for (const auto &serial : PandaUsbHandle::list()) {
+    try {
+      PandaUsbHandle usb_handle(serial);
+      unsigned char hw_query[1] = {0};
+      usb_handle.control_read(0xc1, 0, 0, hw_query, 1, 100);
+      auto usb_hw_type = (cereal::PandaState::PandaType)(hw_query[0]);
+      if (usb_hw_type == cereal::PandaState::PandaType::DOS ||
+          usb_hw_type == cereal::PandaState::PandaType::TRES ||
+          usb_hw_type == cereal::PandaState::PandaType::CUATRO) {
+        serials.push_back(serial);
+      }
+    } catch (std::exception &e) {
+      LOGW("failed to query panda %s over USB: %s", serial.c_str(), e.what());
+    }
+  }
+  return serials;
 }
 
 void Panda::set_safety_model(cereal::CarParams::SafetyModel safety_model, uint16_t safety_param) {
@@ -113,14 +132,31 @@ std::optional<std::string> Panda::get_serial() {
   return err >= 0 ? std::make_optional(serial_buf) : std::nullopt;
 }
 
+// This tree only builds the F4 application for the comma three's internal DOS
+// panda. Resolve the expected firmware image from the detected hardware type
+// and never read or select the H7 image.
+static const char *app_fn_for_hw_type(cereal::PandaState::PandaType panda_hw_type) {
+  switch (panda_hw_type) {
+    case cereal::PandaState::PandaType::WHITE_PANDA:
+    case cereal::PandaState::PandaType::BLACK_PANDA:
+    case cereal::PandaState::PandaType::DOS:
+      return "panda.bin.signed";
+    default:
+      return nullptr;
+  }
+}
+
 bool Panda::up_to_date() {
+  const char *app_fn = app_fn_for_hw_type(hw_type);
+  if (app_fn == nullptr) {
+    return false;
+  }
+
   if (auto fw_sig = get_firmware_version()) {
-    for (auto fn : { "panda.bin.signed", "panda_h7.bin.signed" }) {
-      auto content = util::read_file(std::string("../../../panda/board/obj/") + fn);
-      if (content.size() >= fw_sig->size() &&
-          memcmp(content.data() + content.size() - fw_sig->size(), fw_sig->data(), fw_sig->size()) == 0) {
-        return true;
-      }
+    auto content = util::read_file(std::string("../../../panda/board/obj/") + app_fn);
+    if (content.size() >= fw_sig->size() &&
+        memcmp(content.data() + content.size() - fw_sig->size(), fw_sig->data(), fw_sig->size()) == 0) {
+      return true;
     }
   }
   return false;

@@ -42,10 +42,4 @@ class CarSpecificEventsSP:
       if self.low_speed_alert:
         events.add(EventName.belowSteerSpeed)
 
-    elif self.CP.brand == 'toyota':
-      if self.CP.openpilotLongitudinalControl:
-        if CS.cruiseState.standstill and not CS.brakePressed and self.CP_SP.enableGasInterceptor:
-          if events.has(EventName.resumeRequired):
-            events.remove(EventName.resumeRequired)
-
     return events_sp

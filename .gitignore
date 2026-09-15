@@ -94,6 +94,7 @@ build/
 !.vscode/*.code-snippets
 
 # agents
+.slim/deepwork/
 .claude/
 .context/
 PLAN.md

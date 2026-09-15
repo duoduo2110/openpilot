@@ -1,3 +1,5 @@
+import unittest
+
 from opendbc.sunnypilot.car.tesla.values import TeslaFlagsSP
 from openpilot.cereal import log
 from openpilot.sunnypilot.selfdrive.car.tesla.control_runtime import (
@@ -11,15 +13,33 @@ from openpilot.sunnypilot.selfdrive.car.tesla.control_runtime import (
 EventName = log.OnroadEvent.EventName
 
 
+def _flag(name: str) -> int:
+  """Split-control bits only exist in newer opendbc revisions."""
+  return int(getattr(TeslaFlagsSP, name, 0))
+
+
+STOCK_LONGITUDINAL_ACTIVE = _flag("STOCK_LONGITUDINAL_ACTIVE")
+MANUAL_STOCK_ACTIVE = _flag("MANUAL_STOCK_ACTIVE")
+AP_HYBRID_ACTIVE = _flag("AP_HYBRID_ACTIVE")
+AP_HYBRID_EXIT_RECOVERY_ACTIVE = _flag("AP_HYBRID_EXIT_RECOVERY_ACTIVE")
+SPLIT_CONTROL_AVAILABLE = all((STOCK_LONGITUDINAL_ACTIVE, MANUAL_STOCK_ACTIVE,
+                               AP_HYBRID_ACTIVE, AP_HYBRID_EXIT_RECOVERY_ACTIVE))
+
+
+def _require_split_control():
+  if not SPLIT_CONTROL_AVAILABLE:
+    raise unittest.SkipTest("pinned opendbc has no Tesla split-control flags")
+
+
 class FakeEvents:
   def __init__(self, *events):
     self.events = set(events)
 
-  def has(self, event):
-    return event in self.events
+  def has(self, event_name):
+    return event_name in self.events
 
-  def remove(self, event):
-    self.events.remove(event)
+  def remove(self, event_name):
+    self.events.remove(event_name)
 
 
 def test_state_freshness_is_bounded_and_ordered():
@@ -32,14 +52,23 @@ def test_state_freshness_is_bounded_and_ordered():
 
 def test_stale_flags_fail_closed_to_sp_owner():
   runtime = TeslaControlRuntime(enabled=True)
-  state = runtime.update(TeslaFlagsSP.STOCK_LONGITUDINAL_ACTIVE, 100 + MAX_STATE_AGE_NS + 1, 100)
+  state = runtime.update(STOCK_LONGITUDINAL_ACTIVE, 100 + MAX_STATE_AGE_NS + 1, 100)
+  assert state.longitudinal_owner == TeslaLongitudinalOwner.sp
+  assert not runtime.split_control_transition
+
+
+def test_unknown_flags_fail_closed_to_sp_owner():
+  # A bit this build does not define must never be read as OEM takeover.
+  runtime = TeslaControlRuntime(enabled=True)
+  state = runtime.update(1 << 30, 100, 100)
   assert state.longitudinal_owner == TeslaLongitudinalOwner.sp
   assert not runtime.split_control_transition
 
 
 def test_split_control_filters_only_transition_events():
+  _require_split_control()
   runtime = TeslaControlRuntime(enabled=True)
-  flags = TeslaFlagsSP.STOCK_LONGITUDINAL_ACTIVE | TeslaFlagsSP.MANUAL_STOCK_ACTIVE
+  flags = STOCK_LONGITUDINAL_ACTIVE | MANUAL_STOCK_ACTIVE
   runtime.update(flags, 100, 100)
   events = FakeEvents(EventName.buttonCancel, EventName.pcmDisable, EventName.pedalPressed)
 
@@ -50,8 +79,9 @@ def test_split_control_filters_only_transition_events():
 
 
 def test_previous_owner_protects_first_exit_cycle():
+  _require_split_control()
   runtime = TeslaControlRuntime(enabled=True)
-  runtime.update(TeslaFlagsSP.AP_HYBRID_ACTIVE, 100, 100)
+  runtime.update(AP_HYBRID_ACTIVE, 100, 100)
   runtime.commit_cycle()
   runtime.update(0, 200, 200)
   events = FakeEvents(EventName.pcmDisable)
@@ -62,8 +92,9 @@ def test_previous_owner_protects_first_exit_cycle():
 
 
 def test_exit_recovery_keeps_acc_fault_visible():
+  _require_split_control()
   runtime = TeslaControlRuntime(enabled=True)
-  runtime.update(TeslaFlagsSP.AP_HYBRID_EXIT_RECOVERY_ACTIVE, 100, 100)
+  runtime.update(AP_HYBRID_EXIT_RECOVERY_ACTIVE, 100, 100)
   events = FakeEvents(EventName.accFaulted, EventName.pcmDisable)
 
   runtime.filter_transition_events(events)

@@ -17,6 +17,41 @@ from openpilot.cereal import log
 MAX_STATE_AGE_NS = 50_000_000
 EventName = log.OnroadEvent.EventName
 
+# Tesla ownership bits this runtime interprets.  The pinned opendbc revision may
+# not define all of them (the split-control flags landed after d67ac4a3); a
+# missing bit resolves to 0 and therefore can never select the OEM (stock)
+# owner.  Ownership fails closed to sunnypilot instead of silently reporting a
+# stock takeover.
+_TESLA_OWNERSHIP_FLAG_NAMES = (
+  "STOCK_LONGITUDINAL_ACTIVE",
+  "AP_HYBRID",
+  "AP_HYBRID_ACTIVE",
+  "DYNAMIC_STOCK_ACTIVE",
+  "MANUAL_STOCK_ACTIVE",
+  "AP_HYBRID_STOCK_LATERAL_ACTIVE",
+  "AP_HYBRID_EXIT_RECOVERY_ACTIVE",
+  "TURN_SIGNAL_VALIDATION",
+  "SPEED_BUTTON_VALIDATION",
+  "AUTO_SPEED_LIMIT",
+  "ARS408_RADAR",
+  "RADAR_DISABLED",
+)
+
+
+def _tesla_flag(name: str) -> int:
+  """Numeric value of a Tesla flag, or 0 when the pinned opendbc lacks it."""
+  try:
+    return int(getattr(TeslaFlagsSP, name, 0))
+  except (TypeError, ValueError):
+    return 0
+
+
+# Only these bits are recognised; anything else is masked out so an unknown or
+# stale flag from a different opendbc revision can never be read as OEM takeover.
+_TESLA_OWNERSHIP_MASK = 0
+for _flag_name in _TESLA_OWNERSHIP_FLAG_NAMES:
+  _TESLA_OWNERSHIP_MASK |= _tesla_flag(_flag_name)
+
 
 class EventCollection(Protocol):
   def has(self, event_name: int) -> bool: ...
@@ -36,29 +71,33 @@ class TeslaLongitudinalOwner(StrEnum):
 class TeslaControlState:
   flags: TeslaFlagsSP = field(default_factory=lambda: TeslaFlagsSP(0))
 
+  def _has(self, name: str) -> bool:
+    bit = _tesla_flag(name)
+    return bool(bit) and bool(self.flags & bit)
+
   @property
   def stock_longitudinal(self) -> bool:
-    return bool(self.flags & TeslaFlagsSP.STOCK_LONGITUDINAL_ACTIVE)
+    return self._has("STOCK_LONGITUDINAL_ACTIVE")
 
   @property
   def ap_hybrid(self) -> bool:
-    return bool(self.flags & TeslaFlagsSP.AP_HYBRID_ACTIVE)
+    return self._has("AP_HYBRID_ACTIVE")
 
   @property
   def stock_lateral(self) -> bool:
-    return bool(self.flags & TeslaFlagsSP.AP_HYBRID_STOCK_LATERAL_ACTIVE)
+    return self._has("AP_HYBRID_STOCK_LATERAL_ACTIVE")
 
   @property
   def exit_recovery(self) -> bool:
-    return bool(self.flags & TeslaFlagsSP.AP_HYBRID_EXIT_RECOVERY_ACTIVE)
+    return self._has("AP_HYBRID_EXIT_RECOVERY_ACTIVE")
 
   @property
   def longitudinal_owner(self) -> TeslaLongitudinalOwner:
     if self.ap_hybrid:
       return TeslaLongitudinalOwner.ap_hybrid_stock if self.stock_longitudinal else TeslaLongitudinalOwner.ap_hybrid_sp
-    if self.flags & TeslaFlagsSP.DYNAMIC_STOCK_ACTIVE:
+    if self._has("DYNAMIC_STOCK_ACTIVE"):
       return TeslaLongitudinalOwner.dynamic_stock
-    if self.flags & TeslaFlagsSP.MANUAL_STOCK_ACTIVE:
+    if self._has("MANUAL_STOCK_ACTIVE"):
       return TeslaLongitudinalOwner.manual_stock
     if self.stock_longitudinal:
       return TeslaLongitudinalOwner.stock_unknown
@@ -80,7 +119,9 @@ class TeslaControlRuntime:
 
   def update(self, flags: int, car_state_mono_time: int, car_state_sp_mono_time: int) -> TeslaControlState:
     fresh_flags = flags if self.enabled and state_is_fresh(car_state_mono_time, car_state_sp_mono_time) else 0
-    self.current = TeslaControlState(TeslaFlagsSP(fresh_flags))
+    # Mask to the ownership bits this build understands so an unknown/stale flag
+    # from a different opendbc revision can never be read as OEM takeover.
+    self.current = TeslaControlState(TeslaFlagsSP(int(fresh_flags) & _TESLA_OWNERSHIP_MASK))
     return self.current
 
   @property

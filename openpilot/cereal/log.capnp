@@ -1,7 +1,7 @@
-using Cxx = import "/include/c++.capnp";
+using Cxx = import "./include/c++.capnp";
 $Cxx.namespace("cereal");
 
-using Car = import "/car.capnp";
+using Car = import "car.capnp";
 using Deprecated = import "deprecated.capnp";
 using Custom = import "custom.capnp";
 
@@ -548,7 +548,6 @@ struct PandaState @0xa7649e2575e4591e {
   harnessStatus @21 :HarnessStatus;
   sbu1Voltage @35 :Float32;
   sbu2Voltage @36 :Float32;
-  soundOutputLevel @37 :UInt16;
 
   # can health
   canState0 @29 :PandaCanState;
@@ -569,8 +568,8 @@ struct PandaState @0xa7649e2575e4591e {
 
   # these fields are not used by openpilot, but they're
   # reserved for forks building alternate experiences.
-  controlsAllowedLateral @38 :Bool;
-  controlsAllowedLongitudinal @39 :Bool;
+  controlsAllowedLateral @37 :Bool;
+  controlsAllowedLongitudinal @38 :Bool;
 
   enum FaultStatus {
     none @0;

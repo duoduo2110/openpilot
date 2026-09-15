@@ -1,4 +1,4 @@
-using Cxx = import "/include/c++.capnp";
+using Cxx = import "./include/c++.capnp";
 $Cxx.namespace("cereal");
 
 @0xb526ba661d550a59;
@@ -387,7 +387,6 @@ struct CarParamsSP @0x80ae746ee2596b11 {
   safetyParam @1 : Int16;  # flags for sunnypilot's custom safety flags
   pcmCruiseSpeed @3 :Bool;
   intelligentCruiseButtonManagementAvailable @4 :Bool;
-  enableGasInterceptor @5 :Bool;
 
   neuralNetworkLateralControl @2 :NeuralNetworkLateralControl;
 

@@ -26,6 +26,28 @@ def test_initialization_snapshot_is_complete_and_ordered():
   assert "TeslaSpeedButtonValidation" in INITIALIZATION_KEYS
 
 
+class FakeValueParams(FakeParams):
+  def __init__(self, values):
+    super().__init__()
+    self.values = values
+
+  def get(self, key, block=False, encoding=None, return_default=False):
+    self.requested.append((key, return_default))
+    return self.values.get(key, f"value:{key}")
+
+
+def test_initialization_snapshot_translates_screen_button_to_opendbc_encoding():
+  # A UI-numbered 5-finger selection (2) must reach opendbc as its 5-finger value.
+  snapshot = initialization_snapshot(FakeValueParams({"TeslaMadsScreenButton": 2}))
+  values = {key: value for item in snapshot for key, value in item.items()}
+  assert values["TeslaMadsScreenButton"] == 3
+
+  # Values already in the opendbc encoding pass through unchanged.
+  snapshot = initialization_snapshot(FakeValueParams({"TeslaMadsScreenButton": 3}))
+  values = {key: value for item in snapshot for key, value in item.items()}
+  assert values["TeslaMadsScreenButton"] == 3
+
+
 def test_radar_backend_values_match_opendbc_initialization_contract():
   assert tuple(TeslaRadarBackend) == (
     TeslaRadarBackend.OEM,
@@ -36,7 +58,7 @@ def test_radar_backend_values_match_opendbc_initialization_contract():
 
 
 @pytest.mark.parametrize(("raw", "expected"), [
-  (None, 0), ("bad", 0), (-1, 0), (0, 0), (1, 1), (2, 2), (3, 2), (4, 0),
+  (None, 0), ("bad", 0), (-1, 0), (0, 0), (1, 1), (2, 3), (3, 3), (4, 0),
 ])
 def test_mads_screen_button_normalizes_retired_ui_values(raw, expected):
   assert normalize_mads_screen_button(raw) == expected

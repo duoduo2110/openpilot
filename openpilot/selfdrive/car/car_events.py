@@ -136,7 +136,7 @@ class CarEvents:
       events.add(EventName.parkBrake)
     if CS.accFaulted:
       events.add(EventName.accFaulted)
-    if CS.carNotReady:
+    if getattr(CS, "carNotReady", False):
       events.add(EventName.carNotReady)
     if CS.steeringPressed:
       events.add(EventName.steerOverride)
