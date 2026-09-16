@@ -21,6 +21,7 @@ bin/
 /rednose
 /teleoprtc
 /tinygrad
+/cereal
 
 *.mp4
 *.dylib

@@ -131,7 +131,7 @@ procs = [
 
   NativeProcess("loggerd", "openpilot/system/loggerd", ["./loggerd"], logging),
   PythonProcess("local_diagnosticsd", "openpilot.selfdrive.debug.local_diagnostics", c3xl_local_diagnostics),
-  NativeProcess("encoderd", "openpilot/system/loggerd", ["./encoderd"], record_route_video),
+  NativeProcess("encoderd", "openpilot/system/loggerd", ["./encoderd"], only_onroad),
   NativeProcess("stream_encoderd", "openpilot/system/loggerd", ["./encoderd", "--stream"], or_(livestream, notcar)),
   PythonProcess("logmessaged", "openpilot.system.logmessaged", always_run),
 

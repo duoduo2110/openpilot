@@ -7,6 +7,24 @@ import shlex
 import importlib
 import numpy as np
 
+# Make in-tree packages importable during the build regardless of the caller's
+# PYTHONPATH. `#openpilot` is required so `cereal` resolves as a top-level name:
+# opendbc's opendbc/car/structs.py does `from cereal import car`, and without it
+# that import falls back to registering car.capnp a second time, which aborts
+# the build with "Duplicate ID".
+_build_python_paths = [
+  Dir("#").abspath,
+  Dir("#openpilot").abspath,
+  Dir("#msgq_repo").abspath,
+  Dir("#opendbc_repo").abspath,
+  Dir("#rednose_repo").abspath,
+  Dir("#teleoprtc_repo").abspath,
+  Dir("#tinygrad_repo").abspath,
+]
+for _p in reversed(_build_python_paths):
+  if _p not in sys.path:
+    sys.path.insert(0, _p)
+
 import SCons.Errors
 from SCons.Defaults import _stripixes
 from openpilot.sunnypilot.hardware.profile import get_hardware_profile

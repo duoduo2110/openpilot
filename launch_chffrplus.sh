@@ -79,6 +79,9 @@ function launch {
   ln -sfn rednose_repo/rednose rednose
   ln -sfn teleoprtc_repo/teleoprtc teleoprtc
   ln -sfn tinygrad_repo/tinygrad tinygrad
+  # opendbc's opendbc/car/structs.py does `from cereal import car`; on device
+  # PYTHONPATH is only the repo root, so the top-level name must exist.
+  ln -sfn openpilot/cereal cereal
 
   # hardware specific init
   if [ -f /AGNOS ]; then
