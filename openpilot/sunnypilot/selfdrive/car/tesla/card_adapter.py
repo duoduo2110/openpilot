@@ -9,6 +9,7 @@ import time
 from typing import Any
 
 from opendbc.sunnypilot.car.tesla.values import TeslaSafetyFlagsSP
+from openpilot.common.swaglog import cloudlog
 from openpilot.sunnypilot.selfdrive.car.tesla.ambient_lighting import AmbientLightingController
 from openpilot.sunnypilot.selfdrive.car.tesla.validation_controller import TeslaTurnSignalRealtimeController
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.common import Mode
@@ -68,7 +69,7 @@ class TeslaCardAdapter:
     self.enabled = brand == "tesla"
     self.car_interface = car_interface
     self.sm = submaster
-    self.traffic_control_observer = TeslaTrafficControlObserver() if self.enabled else None
+    self.traffic_control_observer = self._create_traffic_control_observer() if self.enabled else None
     self.road_context_parser = self._create_road_context_parser() if self.enabled else None
     self.lighting_parser = self._create_lighting_parser() if self.enabled else None
     self.speed_limit_assist_configured: bool | None = None
@@ -79,6 +80,17 @@ class TeslaCardAdapter:
                       car_interface.CP_SP.safetyParam & turn_signal_validation)
     self.validation = TeslaTurnSignalRealtimeController(configured) if self.enabled else None
     self.ambient = AmbientLightingController() if self.enabled else None
+
+  def _create_traffic_control_observer(self):
+    try:
+      return TeslaTrafficControlObserver()
+    except Exception:
+      # The pinned opendbc revision ships neither the tesla_modely_hw4_perception
+      # DBC nor a generator that could produce it. Disable the observer
+      # (fail-closed) instead of letting card die on car startup: observe_can and
+      # publish_state already treat a missing observer as "no observations".
+      cloudlog.exception("tesla traffic control observer unavailable; disabled")
+      return None
 
   def _create_road_context_parser(self):
     try:
