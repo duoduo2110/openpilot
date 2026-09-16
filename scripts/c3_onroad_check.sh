@@ -59,6 +59,30 @@ else:
 PYEOF
 
 echo
+echo "== Panda 链路枚举（判断是硬件链路还是应用固件问题）=="
+echo "  USB 设备（正常应用态应为 3801:ddcc；bootstub/DFU 是别的 id）:"
+if command -v lsusb >/dev/null 2>&1; then
+  lsusb 2>/dev/null | grep -iE "3801|stm|dfu|0483" | sed 's/^/    /' || echo "    (未发现 3801:xxxx / ST 相关 USB 设备)"
+else
+  for d in /sys/bus/usb/devices/*; do
+    [[ -f "$d/idVendor" ]] || continue
+    v="$(cat "$d/idVendor" 2>/dev/null)"; p="$(cat "$d/idProduct" 2>/dev/null)"
+    [[ "$v" == "3801" || "$v" == "0483" ]] && echo "    $v:$p  ($(basename "$d"))"
+  done
+  echo "    (无 lsusb，已用 /sys/bus/usb 兜底)"
+fi
+echo "  /dev 节点:"
+ls -l /dev/ttyACM* /dev/spidev* 2>/dev/null | sed 's/^/    /' || echo "    (无 ttyACM* / spidev*)"
+echo "  GPIO（124=STM_RST_N, 134=STM_BOOT0）:"
+for pin in 124 134; do
+  if [[ -e "/sys/class/gpio/gpio$pin/value" ]]; then
+    echo "    gpio$pin = $(cat "/sys/class/gpio/gpio$pin/value" 2>/dev/null)"
+  else
+    echo "    gpio$pin 未导出"
+  fi
+done
+
+echo
 echo "== 关键进程 =="
 for pat in "manager.py" "selfdrive.selfdrived.selfdrived" "selfdrive.car.card" "pandad"; do
   # pgrep -c 无匹配时仍会打印 0，但退出码非零；因此只取 stdout，不要加 || 兜底。
