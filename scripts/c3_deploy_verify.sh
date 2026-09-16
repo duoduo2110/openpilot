@@ -63,6 +63,12 @@ done
 
 info "3) 构建（scons -j$(nproc)）"
 if [[ "${SKIP_BUILD:-0}" != "1" ]]; then
+  # 设备使用共享 scons 缓存（/data/scons_cache）。launch_chffrplus.sh 也会先清掉
+  # 这个锁；遗留的 config.lock 会让构建一直卡住，所以这里照做。
+  [[ -d /data/scons_cache ]] && rm -f /data/scons_cache/config.lock
+  # 与设备既有构建配方一致（线程限制等），缺失时跳过。
+  # shellcheck disable=SC1091
+  [[ -f "$DIR/launch_env.sh" ]] && source "$DIR/launch_env.sh"
   build_log=/data/c3_build.log
   if scons -j"$(nproc)" > "$build_log" 2>&1; then
     ok "scons 成功（日志 $build_log）"
