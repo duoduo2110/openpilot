@@ -411,9 +411,15 @@ class HardwareComma(HardwareBase):
 
     gpio_set(GPIO.STM_RST_N, True)
     gpio_set(GPIO.STM_BOOT0, True)
-    time.sleep(0.01)
+    # The STM32 latches the ROM bootloader only when BOOT0 is held high across
+    # the reset release. 10 ms timings are far too short on this hardware: the
+    # panda then boots the application instead, so recovery silently never
+    # happens and a panda that needs recovery stays missing forever ("NO PANDA"
+    # in the UI) because pandad can never put it into the bootloader.
+    # These are the vendor-validated timings (same as the working C3 branch).
+    time.sleep(0.2)
     gpio_set(GPIO.STM_RST_N, False)
-    time.sleep(0.01)
+    time.sleep(1)
     gpio_set(GPIO.STM_BOOT0, False)
 
   def booted(self):
