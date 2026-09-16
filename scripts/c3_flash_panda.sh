@@ -147,9 +147,12 @@ exit_rom_bootloader
 echo
 if [[ $flash_rc -eq 0 ]]; then
   echo "== bootstub 写入完成 =="
-  echo "   下一步（必须）：给 Panda 完整断电再上电（断供电 2~3 秒），"
-  echo "   上电后 bootstub 的 soft flasher 会闪烁绿灯，pandad 启动时会自动刷 F4 应用固件。"
-  echo "   然后运行：bash scripts/c3_deploy_verify.sh  或直接重启 comma.service 后看 pandaStates。"
+  echo "   脚本已让 panda 跳到 bootstub（soft flasher）。接下来二选一："
+  echo "   (a) 推荐：直接重启 comma.service，让 pandad 自动刷 F4 应用固件："
+  echo "         sudo systemctl restart comma.service"
+  echo "   (b) 若 (a) 不生效：给内置 Panda 完整断电——C3 内置 Panda 与整机共电源，"
+  echo "       没有独立开关，所以需把车下电/拔掉设备供电 2~3 秒再上电（或直接整车重启）。"
+  echo "   随后运行：bash scripts/c3_onroad_check.sh  确认 panda 已被识别（不再是“pand 否”）。"
 else
   echo "== 写入未成功（退出码 $flash_rc）=="
 fi
