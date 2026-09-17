@@ -157,8 +157,13 @@ class Car:
         saved_secoc_key = bytes.fromhex(secoc_key.strip())
         if len(saved_secoc_key) == 16:
           self.CP.secOcKeyAvailable = True
-          self.CI.CS.secoc_key = saved_secoc_key
-          if controller_available:
+          # The pinned opendbc revision may not expose the SecOC fields at all.
+          # Only assign them when present (fail-closed): assigning an unknown
+          # field aborts the process, and card dying takes the whole car stack
+          # down with it.
+          if hasattr(self.CI.CS, "secoc_key"):
+            self.CI.CS.secoc_key = saved_secoc_key
+          if controller_available and hasattr(self.CI.CC, "secoc_key"):
             self.CI.CC.secoc_key = saved_secoc_key
         else:
           cloudlog.warning("Saved SecOC key is invalid")
