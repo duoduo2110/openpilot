@@ -118,6 +118,7 @@ def main() -> None:
 
   count = 0
   no_internal_panda_count = 0
+  recover_attempts = 0
 
   while not do_exit:
     try:
@@ -129,25 +130,82 @@ def main() -> None:
       if time.monotonic() < 60.:
         no_internal_panda_count = 0
 
-      # Handle missing internal panda
+      # Handle missing internal panda.
+      # Order matters: never reset a panda that has not finished enumerating.
+      # Resetting too early pushes it into the ROM bootloader/DFU, after which
+      # it takes much longer (or a full recovery) to come back online. This is
+      # why a naive "reset every few seconds" loop leaves the device stuck at
+      # "NO PANDA" forever.
       if no_internal_panda_count > 0:
-        if no_internal_panda_count == 3:
-          cloudlog.info("No pandas found, putting internal panda into DFU")
-          HARDWARE.recover_internal_panda()
-        else:
+        panda_serials: list[str] = Panda.list()
+        if not panda_serials:
+          cloudlog.info("Panda not found yet, waiting briefly for USB enumeration...")
+          for _ in range(5):
+            time.sleep(1)
+            panda_serials = Panda.list()
+            if len(panda_serials):
+              cloudlog.info(f"Panda appeared after waiting: {panda_serials}")
+              break
+
+        if not panda_serials:
+          # The panda may be in its bootstub phase: the USB device is present
+          # but not yet openable while it validates the app and switches to it.
+          # Only reset when the USB device is truly absent, since resetting
+          # mid-bootstub just restarts the ~10 s boot sequence.
+          try:
+            usb_present = '3801' in subprocess.run(['lsusb'], capture_output=True, text=True).stdout
+          except Exception:
+            usb_present = False
+          if usb_present:
+            cloudlog.info("Panda USB present but not enumerable (bootstub->app?), waiting up to 30s...")
+            for _ in range(60):
+              time.sleep(0.5)
+              panda_serials = Panda.list()
+              if len(panda_serials):
+                cloudlog.info(f"Panda appeared after waiting: {panda_serials}")
+                break
+
+        if not panda_serials:
           cloudlog.info("No pandas found, resetting internal panda")
           HARDWARE.reset_internal_panda()
-        time.sleep(3)  # wait to come back up
+          # The internal panda takes a few seconds to boot its app after a
+          # reset. Wait for it to come back in normal (non-bootstub) mode
+          # before deciding whether to flash.
+          for _ in range(40):
+            panda_serials = Panda.list()
+            if len(panda_serials) == 1:
+              try:
+                with Panda(panda_serials[0]) as p:
+                  if not p.bootstub:
+                    break
+              except Exception:
+                pass
+            time.sleep(0.5)
 
-      # Flash all Pandas in DFU mode
-      dfu_serials = PandaDFU.list()
-      if len(dfu_serials) > 0:
-        for serial in dfu_serials:
+          if not panda_serials:
+            # Never force a board that already has firmware into the ROM
+            # bootloader right away: recover() erases the app sector before
+            # reflashing. Only a truly blank board needs it, and that is
+            # detected after several normal resets fail to produce a panda.
+            if not PandaDFU.list() and recover_attempts < 3:
+              recover_attempts += 1
+              cloudlog.warning(f"Panda did not appear after reset ({recover_attempts}/3), retrying normal reset...")
+              continue
+            recover_attempts = 0
+            cloudlog.info("Panda missing after normal resets, entering ROM bootloader (recover)...")
+            HARDWARE.recover_internal_panda()
+            time.sleep(2)
+      else:
+        panda_serials = Panda.list()
+
+      # Only touch DFU when the panda truly never came up in normal mode
+      if not panda_serials:
+        for serial in PandaDFU.list():
           cloudlog.info(f"Panda in DFU mode found, flashing recovery {serial}")
           PandaDFU(serial).recover()
-        time.sleep(1)
+          time.sleep(1)
+        panda_serials = Panda.list()
 
-      panda_serials = Panda.list()
       if len(panda_serials) == 0:
         no_internal_panda_count += 1
         continue
