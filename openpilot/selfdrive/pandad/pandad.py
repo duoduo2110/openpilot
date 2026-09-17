@@ -336,6 +336,7 @@ def main() -> None:
       for panda in pandas:
         panda.close()
       no_internal_panda_count = 0
+      recover_attempts = 0
     # TODO: wrap all panda exceptions in a base panda exception
     except (usb1.USBErrorNoDevice, usb1.USBErrorPipe):
       # a panda was disconnected while setting everything up. let's try again
