@@ -83,8 +83,57 @@ for pin in 124 134; do
 done
 
 echo
+echo "== onroad 关键信号（排查校准/车速/模型）=="
+PYTHONPATH="$DIR" timeout 90 "$PY" - <<'PYEOF'
+import time
+import openpilot.cereal.messaging as messaging
+
+sm = messaging.SubMaster(['carState', 'extrinsicsCalibration', 'modelV2', 'selfdriveState', 'deviceState'])
+deadline = time.monotonic() + 8.0
+while time.monotonic() < deadline:
+  sm.update(200)
+  if sm.valid['carState'] and sm.valid['extrinsicsCalibration']:
+    break
+
+if sm.valid['carState']:
+  cs = sm['carState']
+  print(f"  车速 vEgo={cs.vEgo:.2f} m/s ({cs.vEgo * 2.23694:.1f} mph)  vEgoRaw={cs.vEgoRaw:.2f} m/s"
+        f"  standstill={cs.standstill}  gear={cs.gearShifter}  gasPressed={cs.gasPressed}")
+  print("  ← 校准要求 vEgo > 6.71 m/s（15 mph）；若开车时这里长期≈0，说明 CAN 车速没解析出来")
+else:
+  print("  carState: 未收到（card 未产出车辆状态）")
+
+if sm.valid['extrinsicsCalibration']:
+  ec = sm['extrinsicsCalibration']
+  print(f"  校准 validBlocks={ec.validBlocks}  status={ec.status}  rpyCalib={[round(float(x), 4) for x in ec.rpyCalib]}")
+  print("  ← validBlocks 随有效校准块累积；长期为 0 说明没拿到有效车速/相机位姿")
+else:
+  print("  extrinsicsCalibration: 未收到（calibrationd 未产出）")
+
+if sm.valid['modelV2']:
+  age = time.monotonic() - sm.recv_time['modelV2']
+  print(f"  modelV2: 已收到（{age:.1f}s 前）← 模型在跑（校准需要它的相机位姿）")
+else:
+  print("  modelV2: 未收到 ← modeld 没在产出（会导致校准无法推进）")
+
+if sm.valid['selfdriveState']:
+  ss = sm['selfdriveState']
+  a1 = getattr(ss, 'alertText1', '') or getattr(ss, 'alertText', '')
+  print(f"  selfdriveState: enabled={ss.enabled} state={ss.state} 提示={a1!r}")
+PYEOF
+
+echo
+echo "== 模型产物（modeld 依赖；缺则校准拿不到位姿）=="
+for f in openpilot/selfdrive/modeld/models/driving_tinygrad.pkl.chunkmanifest \
+         openpilot/selfdrive/modeld/models/dmonitoring_model_tinygrad.pkl.chunkmanifest \
+         openpilot/selfdrive/modeld/models/dm_warp_1344x760_tinygrad.pkl \
+         openpilot/selfdrive/modeld/models/dm_warp_1928x1208_tinygrad.pkl; do
+  if [[ -e "$f" ]]; then echo "  [OK] $f"; else echo "  [!!] 缺失: $f"; fi
+done
+
+echo
 echo "== 关键进程 =="
-for pat in "manager.py" "selfdrive.selfdrived.selfdrived" "selfdrive.car.card" "pandad"; do
+for pat in "manager.py" "selfdrive.selfdrived.selfdrived" "selfdrive.car.card" "selfdrive.locationd.calibrationd" "selfdrive.modeld.modeld" "pandad"; do
   # pgrep -c 无匹配时仍会打印 0，但退出码非零；因此只取 stdout，不要加 || 兜底。
   n="$(pgrep -c -f "$pat" 2>/dev/null | head -1)"
   n="${n:-0}"
