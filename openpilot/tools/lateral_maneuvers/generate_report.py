@@ -152,7 +152,8 @@ def report(platform, route, _description, CP, ID, maneuvers):
       ax[1].grid(linewidth=4)
       if CP.steerControlType == car.CarParams.SteerControlType.angle:
         steer_field, steer_ylabel = 'steeringAngleDeg', 'Steer angle (deg)'
-      elif CP.steerControlType == car.CarParams.SteerControlType.curvature:
+      elif getattr(car.CarParams.SteerControlType, "curvature", None) is not None and \
+           CP.steerControlType == car.CarParams.SteerControlType.curvature:
         steer_field, steer_ylabel = 'curvature', 'Curvature (1/m)'
       else:
         steer_field, steer_ylabel = 'torque', 'Steer torque'
