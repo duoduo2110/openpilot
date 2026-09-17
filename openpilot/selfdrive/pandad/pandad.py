@@ -5,8 +5,9 @@ import usb1
 import time
 import signal
 import subprocess
+from itertools import accumulate
 
-from panda import Panda, PandaDFU, PandaProtocolMismatch, FW_PATH
+from panda import Panda, PandaDFU, PandaProtocolMismatch, McuType, FW_PATH
 from openpilot.common.basedir import BASEDIR
 from openpilot.common.params import Params
 from openpilot.common.hardware import HARDWARE
@@ -20,6 +21,85 @@ def get_expected_signature(panda: Panda) -> bytes:
   except Exception:
     cloudlog.exception("Error computing expected signature")
     return b""
+
+
+def wait_for_panda_serial(serial: str, timeout: float = 30.0) -> bool:
+  t0 = time.monotonic()
+  while time.monotonic() - t0 < timeout:
+    try:
+      if serial in Panda.list():
+        return True
+    except Exception:
+      pass
+    time.sleep(0.5)
+  return False
+
+
+def flash_internal_dos(panda_serial: str) -> None:
+  """Full reflash of the internal DOS panda (comma three).
+
+  Taken from the working C3 reference implementation. The DOS panda is
+  soldered onto the mainboard and connected to the SoC over USB only (there is
+  no SPI connection). Its firmware does not respond to the USB 0xd1 "enter
+  bootloader" vendor command (it returns STALL), so neither the normal flasher
+  path (panda.flash) nor the USB DFU recover path can update it.
+
+  The only reliable way to reflash it is:
+    1. GPIO: hold BOOT0 and reset -> ST ROM bootloader enumerates as 0483:df11
+    2. DFU:  erase and write bootstub + app over the ST bootloader
+    3. GPIO: release BOOT0 and reset -> boot the app from flash
+  """
+  f4 = McuType.F4.config
+
+  # 1. enter DFU by holding BOOT0 and resetting
+  cloudlog.info("internal DOS panda: entering ROM bootloader (DFU) via GPIO")
+  HARDWARE.recover_internal_panda()
+  dfu_serials: list[str] = []
+  t0 = time.monotonic()
+  while time.monotonic() - t0 < 30:
+    try:
+      dfu_serials = PandaDFU.list()
+    except Exception:
+      dfu_serials = []
+    if dfu_serials:
+      break
+    time.sleep(0.5)
+  if not dfu_serials:
+    raise Exception("internal DOS panda: did not enter DFU after GPIO recover")
+
+  # 2. full reflash over DFU
+  dfu = PandaDFU(dfu_serials[0])
+  handle = dfu._handle
+  try:
+    handle.clear_status()
+
+    with open(os.path.join(FW_PATH, f4.bootstub_fn), "rb") as f:
+      bootstub_code = f.read()
+    with open(os.path.join(FW_PATH, f4.app_fn), "rb") as f:
+      app_code = f.read()
+
+    # bootstub lives in sector 0; app starts at sector 1. Compute how many
+    # sectors the app spans and erase 0..last_sector (leaves the provisioning
+    # chunk in the top sector untouched).
+    apps_sectors_cumsum = list(accumulate(f4.sector_sizes[1:]))
+    last_sector = next((i + 1 for i, v in enumerate(apps_sectors_cumsum) if v > len(app_code)), None)
+    if last_sector is None or last_sector < 1:
+      raise Exception(f"internal DOS panda: bad app size {len(app_code)}")
+    if last_sector >= 7:
+      raise Exception(f"internal DOS panda: app too large ({len(app_code)} bytes)")
+
+    for i in range(0, last_sector + 1):
+      handle.erase_sector(i)
+
+    cloudlog.info(f"internal DOS panda: writing bootstub ({len(bootstub_code)} bytes) + app ({len(app_code)} bytes)")
+    handle.program(f4.bootstub_address, bootstub_code)
+    handle.program(f4.app_address, app_code)
+  finally:
+    dfu.close()
+
+  # 3. boot from flash
+  cloudlog.info("internal DOS panda: reflashed, resetting to boot app")
+  HARDWARE.reset_internal_panda()
 
 
 def flash_panda(panda_serial: str) -> Panda:
@@ -69,8 +149,28 @@ def flash_panda(panda_serial: str) -> Panda:
 
   if panda.bootstub or panda_signature != fw_signature:
     cloudlog.info("Panda firmware out of date, update required")
-    panda.flash()
+    panda.close()
+    if internal_panda and hw_type == Panda.HW_TYPE_DOS:
+      # The comma three's internal DOS panda is USB-only (no SPI) and its
+      # firmware does not answer the USB 0xd1 "enter bootloader" command
+      # (STALL), so neither panda.flash() nor the DFU recover path can update
+      # it. Only the GPIO-reached ST ROM bootloader can, writing bootstub and
+      # app in one go.
+      flash_internal_dos(panda_serial)
+    else:
+      panda = Panda(panda_serial)
+      try:
+        panda.flash()
+      except Exception:
+        cloudlog.exception("flasher-based flash failed, falling back to DFU recover")
+        panda = Panda(panda_serial)
+        panda.recover(reset=(not internal_panda))
     cloudlog.info("Done flashing")
+
+    # Wait for the panda to re-enumerate and connect after flashing
+    if not wait_for_panda_serial(panda_serial, timeout=30):
+      raise Exception("panda did not come back after flashing")
+    panda = Panda(panda_serial)
 
   if panda.bootstub:
     bootstub_version = panda.get_version()

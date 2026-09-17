@@ -113,33 +113,24 @@ if [[ "$MODE" == "--check" ]]; then
   exit $probe_rc
 fi
 
-# --flash：用 panda 库自带的 recover()（按 MCU 选 bootstub 文件 + 擦 sector 0/1 + 写入 + 跳转）
-echo ">> 写入 F4 bootstub（PandaDFU.recover）…"
-PYTHONPATH="$DIR" timeout 180 "$PY" - <<'PYEOF'
+# --flash：与 pandad 使用同一条已验证路径（GPIO 进 ST ROM bootloader → 一次写入
+# bootstub + app → 释放 BOOT0 复位），而不是只写 bootstub 的半套流程。
+echo ">> 写入 F4 bootstub + app（复用 pandad.flash_internal_dos）…"
+PYTHONPATH="$DIR" timeout 300 "$PY" - <<'PYEOF'
 import sys
-from panda.python.dfu import PandaDFU
 
 try:
-  dfu = PandaDFU(None)
+  from openpilot.selfdrive.pandad.pandad import flash_internal_dos
 except Exception as e:
-  print(f"  [!!] 无法连接 ROM bootloader: {type(e).__name__}: {e}")
-  sys.exit(3)
+  print(f"  [!!] 无法导入 flash_internal_dos: {type(e).__name__}: {e}")
+  sys.exit(2)
 
 try:
-  mcu = dfu.get_mcu_type()
-  if mcu.name != "F4":
-    print(f"  [!!] 检测到 {mcu.name}，本脚本面向内置 DOS/F4，已中止（避免写错固件）")
-    sys.exit(5)
-  dfu.recover()
-  print("  [OK] bootstub 已写入并跳转（panda 现在应运行 bootstub 的 soft flasher）")
+  flash_internal_dos("internal")
+  print("  [OK] bootstub + app 已写入并已复位启动")
 except Exception as e:
   print(f"  [!!] 写入失败: {type(e).__name__}: {e}")
   sys.exit(6)
-finally:
-  try:
-    dfu.close()
-  except Exception:
-    pass
 PYEOF
 flash_rc=$?
 
