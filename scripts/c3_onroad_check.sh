@@ -124,12 +124,21 @@ PYEOF
 
 echo
 echo "== 模型产物（modeld 依赖；缺则校准拿不到位姿）=="
-for f in openpilot/selfdrive/modeld/models/driving_tinygrad.pkl.chunkmanifest \
-         openpilot/selfdrive/modeld/models/dmonitoring_model_tinygrad.pkl.chunkmanifest \
-         openpilot/selfdrive/modeld/models/dm_warp_1344x760_tinygrad.pkl \
-         openpilot/selfdrive/modeld/models/dm_warp_1928x1208_tinygrad.pkl; do
-  if [[ -e "$f" ]]; then echo "  [OK] $f"; else echo "  [!!] 缺失: $f"; fi
-done
+M="openpilot/selfdrive/modeld/models"
+drv=$(ls "$M"/driving_tinygrad.pkl* 2>/dev/null | wc -l)
+dm=$(ls "$M"/dmonitoring_model_tinygrad.pkl* 2>/dev/null | wc -l)
+warp=$(ls "$M"/dm_warp_*_tinygrad.pkl 2>/dev/null | wc -l)
+echo "  driving_tinygrad.pkl*        : $drv 个"
+echo "  dmonitoring_model_tinygrad*  : $dm 个"
+echo "  dm_warp_*_tinygrad.pkl       : $warp 个"
+echo "  （设备只编译自己那颗摄像头对应的 dm_warp，1 个即为正常）"
+if [[ "$drv" -gt 0 && "$dm" -gt 0 && "$warp" -gt 0 ]]; then
+  echo "  [OK] 三类模型产物齐全"
+else
+  echo "  [!!] 有缺失 → modeld 无法启动，校准会一直停在 0%"
+fi
+echo "  目录内容："
+ls -l "$M" 2>/dev/null | sed 's/^/    /'
 
 echo
 echo "== 关键进程 =="

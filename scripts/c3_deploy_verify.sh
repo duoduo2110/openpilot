@@ -83,13 +83,21 @@ fi
 info "4) 关键产物（缺失即不要上车）"
 for f in panda/board/obj/panda.bin.signed \
          panda/board/obj/bootstub.panda.bin \
-         openpilot/selfdrive/pandad/pandad \
-         openpilot/selfdrive/modeld/models/driving_tinygrad.pkl.chunkmanifest \
-         openpilot/selfdrive/modeld/models/dmonitoring_model_tinygrad.pkl.chunkmanifest \
-         openpilot/selfdrive/modeld/models/dm_warp_1344x760_tinygrad.pkl \
-         openpilot/selfdrive/modeld/models/dm_warp_1928x1208_tinygrad.pkl; do
-  if [[ -e "$f" ]]; then ok "$f"; else bad "缺失: $f（modeld/dmonitoringmodeld 上车会直接崩）"; fi
+         openpilot/selfdrive/pandad/pandad; do
+  if [[ -e "$f" ]]; then ok "$f"; else bad "缺失: $f"; fi
 done
+
+# 模型产物：设备（comma_arm64）只为它自己那颗摄像头编译 dm_warp，因此按“类”判断，
+# 而不是要求两个分辨率都在。缺了模型 modeld 起不来 → 校准会一直停在 0%。
+M="openpilot/selfdrive/modeld/models"
+chk_count() {  # $1=glob $2=描述
+  local n
+  n=$(ls "$M"/$1 2>/dev/null | wc -l)
+  if [[ "$n" -gt 0 ]]; then ok "$2 ($n 个)"; else bad "缺失: $2（modeld 无法启动，校准会停在 0%）"; fi
+}
+chk_count "driving_tinygrad.pkl*" "driving_tinygrad.pkl*"
+chk_count "dmonitoring_model_tinygrad.pkl*" "dmonitoring_model_tinygrad.pkl*"
+chk_count "dm_warp_*_tinygrad.pkl" "dm_warp_*_tinygrad.pkl"
 
 info "5) 结果"
 if [[ ${#FAIL[@]} -eq 0 ]]; then
