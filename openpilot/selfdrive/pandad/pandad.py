@@ -71,6 +71,11 @@ def flash_internal_dos(panda_serial: str) -> None:
   dfu = PandaDFU(dfu_serials[0])
   handle = dfu._handle
   try:
+    # Fail closed on anything that is not an F4: this path programs F4 addresses
+    # with F4 images, so a wrong MCU here would brick the board.
+    if dfu.get_mcu_type() != McuType.F4:
+      raise Exception(f"internal DOS panda: DFU device is {dfu.get_mcu_type()}, expected F4 — refusing to write")
+
     handle.clear_status()
 
     with open(os.path.join(FW_PATH, f4.bootstub_fn), "rb") as f:
