@@ -22,6 +22,13 @@ from openpilot.sunnypilot.selfdrive.controls.lib.longitudinal_backends.longcontr
 from openpilot.selfdrive.modeld.modeld import LAT_SMOOTH_SECONDS
 from openpilot.selfdrive.locationd.helpers import PoseCalibrator, Pose
 
+
+# The pinned opendbc revision exposes `curvatureDEPRECATED` instead of
+# `curvature`. Resolve the member once and treat it as absent (fail-closed) when
+# the pinned revision does not provide it, instead of crashing controlsd on
+# startup (which would leave the car with no control at all).
+_CURVATURE_STEER_TYPE = getattr(car.CarParams.SteerControlType, "curvature", None)
+
 from openpilot.sunnypilot.selfdrive.controls.controlsd_ext import ControlsExt
 
 State = log.SelfdriveState.OpenpilotState
@@ -61,7 +68,7 @@ class Controls(ControlsExt):
     self.LaC: LatControl
     if self.CP.steerControlType == car.CarParams.SteerControlType.angle:
       self.LaC = LatControlAngle(self.CP, self.CP_SP, self.CI, DT_CTRL)
-    elif self.CP.steerControlType == car.CarParams.SteerControlType.curvature:
+    elif self.CP.steerControlType == _CURVATURE_STEER_TYPE:
       self.LaC = LatControlCurvature(self.CP, self.CP_SP, self.CI, DT_CTRL)
     elif self.CP.lateralTuning.which() == 'pid':
       self.LaC = LatControlPID(self.CP, self.CP_SP, self.CI, DT_CTRL)
@@ -151,7 +158,7 @@ class Controls(ControlsExt):
                                                      self.steer_limited_by_safety, self.desired_curvature,
                                                      self.calibrated_pose, curvature_limited, lat_delay)
     actuators.torque = float(steer)
-    if self.CP.steerControlType == car.CarParams.SteerControlType.curvature:
+    if self.CP.steerControlType == _CURVATURE_STEER_TYPE:
       actuators.curvature = float(lateral_output)
     else:
       actuators.steeringAngleDeg = float(lateral_output)
@@ -229,7 +236,7 @@ class Controls(ControlsExt):
     lat_tuning = self.CP.lateralTuning.which()
     if self.CP.steerControlType == car.CarParams.SteerControlType.angle:
       cs.lateralControlState.angleState = lac_log
-    elif self.CP.steerControlType == car.CarParams.SteerControlType.curvature:
+    elif self.CP.steerControlType == _CURVATURE_STEER_TYPE:
       cs.lateralControlState.curvatureState = lac_log
     elif lat_tuning == 'pid':
       cs.lateralControlState.pidState = lac_log

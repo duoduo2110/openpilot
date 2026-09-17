@@ -1008,6 +1008,10 @@ struct DrivingModelData {
   frameIdExtra @1 :UInt32;
   frameDropPerc @6 :Float32;
   modelExecutionTime @7 :Float32;
+  # Whether this frame came from the big (eGPU/Chestnut) model. The modeld code
+  # fills this field every frame, so a schema without it makes modeld crash on
+  # the first publish (and calibration then never gets a model pose).
+  big @8 :Bool;
 
   action @2 :ModelDataV2.Action;
 
