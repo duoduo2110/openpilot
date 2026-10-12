@@ -1,0 +1,42 @@
+[Unit]
+Description=C3 bulk (FunctionFS) root keeper: ep0 owner + UDC binder
+# 开机必须早于 openpilot：C3 侧的 modeld 一起来就可能 open()/write() ep1/ep2，
+# 而 descriptors 必须先由 keeper 写完并绑 UDC，主机侧才枚举得到 1209:0001。
+# 用一个「本机已启动」的依赖而不是硬 After=openpilot.service：openpilot 是
+# oneshot+tmux（comma.service），拿它做 ordering 依赖会引入不必要的耦合。
+#
+# 部署位置说明：这台 C3 的 / 是 ext4 ro，/etc/systemd/system 与
+# /usr/lib/systemd/system 都写不进去，所以 c3-bulk-gadget.sh 把本文件装到
+# /run/systemd/system（tmpfs）后 daemon-reload + restart。本单元因此**不跨重启**，
+# 「开机自启」由 /data/continue.sh → c3-bulk-gadget.sh 这个钩子保证（每次开机重装）。
+# 下面的 [Install] 只在 / 可写的镜像上生效（enable 失败会被脚本容忍）。
+After=local-fs.target systemd-modules-load.service
+Before=getty.target
+
+[Service]
+Type=simple
+# 整个方案里**唯一**跑 root 的东西：打开 FunctionFS ep0（写 descriptors）与
+# 绑 UDC 都要 CAP_ADMIN。modeld 仍然以 comma 跑，只开 ep1/ep2。
+User=root
+WorkingDirectory=/data/openpilot
+Environment=BULK_GADGET=/sys/kernel/config/usb_gadget/c3bulk
+Environment=BULK_MOUNT=/dev/ffs-c3bulk
+Environment=BULK_UDC=a600000.dwc3
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/data/openpilot/pydeps:/data/openpilot:/data/openpilot/msgq_repo
+Environment=HOME=/data/models
+ExecStartPre=-/bin/sh -c 'mountpoint -q /sys/kernel/config || mount -t configfs none /sys/kernel/config'
+ExecStart=/usr/local/venv/bin/python3 /data/accelerator/files/openpilot/sunnypilot/accelerators/bulk_gadget/bulk_keeper_root.py
+# keeper 存在的全部意义就是「一直占着 ep0」。它一死，UDC 就被解绑，主机侧设备消失，
+# 而 openpilot 侧没有任何东西会把它拉回来（之前就是踩这个坑：重启 comma.service
+# 会连带 SIGTERM 掉 setsid/nohup 起的 keeper，bulk 链路静默永久消失）。
+Restart=always
+RestartSec=2
+# 没有 StartLimit 限制：keeper 反复起停只发生在 C3 侧 ffs 还没建好的时候，
+# 那时 c3-bulk-gadget.sh 会重跑；限流反而会留下「没人占 ep0」的死窗口。
+StartLimitIntervalSec=0
+TimeoutStopSec=10
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target

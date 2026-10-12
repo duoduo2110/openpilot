@@ -37,6 +37,10 @@ from openpilot.system.camerad.cameras.nv12_info import get_nv12_info
 from openpilot.selfdrive.controls.lib.desire_helper import DesireHelper
 from openpilot.selfdrive.controls.lib.drive_helpers import get_accel_from_plan, smooth_value
 from openpilot.selfdrive.modeld.modeld import ChestnutState
+from openpilot.sunnypilot import accelerators
+from openpilot.sunnypilot.accelerators.remote.cpu_online import ensure_big_cores_online
+from openpilot.sunnypilot.accelerators.remote.joined import JoinedModel
+from openpilot.sunnypilot.accelerators.remote.status_writer import StatusWriter
 
 from openpilot.selfdrive.modeld.compile_modeld import (
   MODELD_INPUTS,
@@ -321,14 +325,22 @@ def main(demo=False):
   sentry.set_tag("daemon", PROCESS_NAME)
   cloudlog.bind(daemon=PROCESS_NAME)
   setproctitle(PROCESS_NAME)
+  # 远端加速器必须在实时线程建立之前准备（避免 GPU 线程继承实时优先级）
+  accel_prepared = accelerators.prepare()
+  # offroad 省电会把大核 cpu4-7 下线；cpu7 offline 时下面的 config_realtime_process(7, 54)
+  # 会对 cpu7 调 sched_setaffinity 并抛 OSError [Errno 22] 让 modeld 起不来。
+  # 启动前幂等上线大核（只动 cpu 在线状态，不碰任何安全门禁）。
+  if not ensure_big_cores_online():
+    cloudlog.warning("accelerator: cpu4-7 未能全部上线，实时亲和性可能失败")
   config_realtime_process(7, 54)
 
   CHESTNUT = chestnut_present()
   if CHESTNUT:
     os.environ['HCQDEV_WAIT_TIMEOUT_MS'] = '3000'
+  ACCEL = (not CHESTNUT) and accel_prepared
 
   params = Params()
-  params.put_bool("ChestnutLoading", CHESTNUT)
+  params.put_bool("ChestnutLoading", CHESTNUT or ACCEL)
   params.remove("ChestnutActive")
 
   # visionipc clients
@@ -381,17 +393,28 @@ def main(demo=False):
   small_model = ModelState(cam_w=vipc_client_main.width, cam_h=vipc_client_main.height, chestnut=False) if model is None or CHESTNUT else None
   if model is None:
     model = small_model
+    if ACCEL:
+      # 远端加载失败也必须退回纯本地小模型，不得让 modeld 起不来
+      acc = None
+      try:
+        acc = accelerators.load(vipc_client_main.width, vipc_client_main.height, small_model)
+      except Exception:
+        cloudlog.exception("accelerator load failed; falling back to small model")
+      if acc is not None:
+        model = JoinedModel(acc, small_model, status=getattr(acc, 'status', None),
+                            status_writer=StatusWriter())
+        cloudlog.warning(f"accelerator enabled, remote warp path active ({acc.metadata_source})")
   params.put_bool("ChestnutLoading", False)
   assert model is not None
   cloudlog.warning(f"models loaded in {time.monotonic() - st:.1f}s, modeld starting")
 
   # messaging
-  pub_socks = ["modelV2", "drivingModelData", "cameraOdometry", "modelDataV2SP"] + (["chestnutState"] if CHESTNUT else [])
+  pub_socks = ["modelV2", "drivingModelData", "cameraOdometry", "modelDataV2SP"] + (["chestnutState"] if (CHESTNUT or ACCEL) else [])
   pm = PubMaster(pub_socks)
-  sm = SubMaster(["deviceState", "carState", "narrowRoadCameraState", "extrinsicsCalibration", "driverMonitoringState", "carControl", "lateralDelay"])
+  sm = SubMaster(["deviceState", "carState", "narrowRoadCameraState", "extrinsicsCalibration", "driverMonitoringState", "carControl", "lateralDelay", "selfdriveState"])
 
   publish_state = PublishState()
-  chestnut_state = ChestnutState(pm, model.chestnut) if CHESTNUT else None
+  chestnut_state = ChestnutState(pm, model.chestnut) if (CHESTNUT or ACCEL) else None
 
   # setup filter to track dropped frames
   frame_dropped_filter = FirstOrderFilter(0., 10., 1. / model.constants.MODEL_FREQ)
@@ -510,6 +533,22 @@ def main(demo=False):
     if 'action_t' in model.numpy_inputs:
       inputs['action_t'] = np.array([lat_action_t, long_action_t], dtype=np.float32)
 
+    if ACCEL and isinstance(model, JoinedModel):
+      # 发布上下文按帧注入：远端结果延迟一帧发布，必须绑定它自己那一帧的
+      # frameId/timestamp_eof/action_t/v_ego/frame_drop，禁止用 N+1 的上下文。
+      frame_context = {
+        'frame_id_extra': meta_extra.frame_id,
+        'camera_frame_id': frame_id,
+        'frame_drop_ratio': frame_drop_ratio,
+        'vipc_dropped_frames': vipc_dropped_frames,
+        'lat_action_t': lat_action_t,
+        'long_action_t': long_action_t,
+        'v_ego': v_ego,
+        'live_calib_seen': live_calib_seen,
+      }
+      model.update_runtime(sm, meta_main.frame_id, meta_main.timestamp_eof,
+                           context=frame_context)
+
     mt1 = time.perf_counter()
     try:
       send_chestnut = (chestnut_state is not None and
@@ -536,11 +575,32 @@ def main(demo=False):
       posenet_send = messaging.new_message('cameraOdometry')
       mdv2sp_send = messaging.new_message('modelDataV2SP')
 
-      action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego)
+      # 延迟一帧发布：远端结果绑定它自己那一帧的上下文；small/首帧沿用当前帧。
+      publish_context = getattr(model, 'output_context', None)
+      if not isinstance(publish_context, dict):
+        publish_context = {
+          'frame_id': meta_main.frame_id,
+          'timestamp_eof': meta_main.timestamp_eof,
+          'frame_id_extra': meta_extra.frame_id,
+          'camera_frame_id': frame_id,
+          'frame_drop_ratio': frame_drop_ratio,
+          'vipc_dropped_frames': vipc_dropped_frames,
+          'lat_action_t': lat_action_t,
+          'long_action_t': long_action_t,
+          'v_ego': v_ego,
+          'live_calib_seen': live_calib_seen,
+        }
+
+      action = model.get_action_from_model(model_output, prev_action,
+                                           publish_context['lat_action_t'],
+                                           publish_context['long_action_t'],
+                                           publish_context['v_ego'])
       prev_action = action
       fill_model_msg(drivingdata_send, modelv2_send, model_output, action,
-                     publish_state, meta_main.frame_id, meta_extra.frame_id, frame_id,
-                     frame_drop_ratio, meta_main.timestamp_eof, model_execution_time, live_calib_seen, meta_constants)
+                     publish_state, publish_context['frame_id'], publish_context['frame_id_extra'],
+                     publish_context['camera_frame_id'], publish_context['frame_drop_ratio'],
+                     publish_context['timestamp_eof'], model_execution_time,
+                     publish_context['live_calib_seen'], meta_constants)
       modelv2_send.modelV2.big = model.chestnut
 
       desire_state = modelv2_send.modelV2.meta.desireState
@@ -555,7 +615,9 @@ def main(demo=False):
       drivingdata_send.drivingModelData.meta.laneChangeState = DH.lane_change_state
       drivingdata_send.drivingModelData.meta.laneChangeDirection = DH.lane_change_direction
 
-      fill_pose_msg(posenet_send, model_output, meta_main.frame_id, vipc_dropped_frames, meta_main.timestamp_eof, live_calib_seen)
+      fill_pose_msg(posenet_send, model_output, publish_context['frame_id'],
+                    publish_context['vipc_dropped_frames'], publish_context['timestamp_eof'],
+                    publish_context['live_calib_seen'])
       pm.send('modelV2', modelv2_send)
       pm.send('drivingModelData', drivingdata_send)
       pm.send('cameraOdometry', posenet_send)

@@ -114,6 +114,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"RecordAudio", {PERSISTENT | BACKUP, BOOL}},
     {"RecordFront", {PERSISTENT | BACKUP, BOOL}},
     {"RecordFrontLock", {PERSISTENT, BOOL}},  // for the internal fleet
+    {"RemoteModelDebugLog", {PERSISTENT | BACKUP, BOOL, "0"}},  // 外置大模型链路调试日志，默认关
     {"SecOCKey", {PERSISTENT | DONT_LOG | BACKUP, STRING}},
     {"ShowDebugInfo", {PERSISTENT, BOOL}},
     {"RouteCount", {PERSISTENT, INT, "0"}},
