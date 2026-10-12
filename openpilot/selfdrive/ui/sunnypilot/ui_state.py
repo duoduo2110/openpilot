@@ -66,10 +66,23 @@ class UIStateSP:
     self._sp_initialized: bool = False
 
   def update(self) -> None:
+    from openpilot.selfdrive.ui.ui_state import ChestnutState
+    from openpilot.selfdrive.ui.sunnypilot.accelerator_link import get_accelerator_snapshot
+
     if self.sunnylink_enabled:
       self.sunnylink_state.start()
     else:
       self.sunnylink_state.stop()
+
+    # 外置链路复用 Chestnut 图标状态，不改动 Chestnut 参数或原生状态源。
+    accelerator_config, accelerator_status = get_accelerator_snapshot()
+    if accelerator_config.get("enabled") is True:
+      if accelerator_status.get("big_active") is True:
+        self.chestnut_state = ChestnutState.ACTIVE
+      elif accelerator_status.get("state") in ("joining", "retrying"):
+        self.chestnut_state = ChestnutState.LOADING
+      elif accelerator_status.get("state") == "unavailable":
+        self.chestnut_state = ChestnutState.FAILED
 
   def onroad_brightness_handle_alerts(self, _ui_state, alert):
     if _ui_state.sm.recv_frame["carState"] < _ui_state.started_frame:

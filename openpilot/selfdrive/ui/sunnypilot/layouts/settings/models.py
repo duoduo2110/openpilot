@@ -7,6 +7,7 @@ See the LICENSE.md file in the root directory for more details.
 import os
 import re
 import time
+import threading
 import pyray as rl
 
 from openpilot.cereal import custom
@@ -27,6 +28,9 @@ from openpilot.system.ui.sunnypilot.lib.utils import NoElideButtonAction, Scroll
 from openpilot.system.ui.sunnypilot.widgets.list_view import ListItemSP, toggle_item_sp, option_item_sp
 from openpilot.system.ui.sunnypilot.widgets.download_status import download_status_item
 from openpilot.system.ui.sunnypilot.widgets.tree_dialog import TreeOptionDialog, TreeNode, TreeFolder
+from openpilot.selfdrive.ui.sunnypilot.accelerator_link import (AcceleratorLinkPanel, get_accelerator_panel_headline,
+                                                               get_accelerator_snapshot, write_debug_log,
+                                                               write_enabled)
 
 if gui_app.sunnypilot_ui():
   from openpilot.system.ui.sunnypilot.widgets.list_view import button_item_sp as button_item
@@ -42,6 +46,10 @@ class ModelsLayout(Widget):
     self._verifying = False
     self._last_note = None
     self.last_cache_calc_time = 0
+    self._accelerator_config, self._accelerator_status = get_accelerator_snapshot()
+    self._accelerator_write_error = None
+    self._accelerator_write_pending = False
+    self._accelerator_debug_write_pending = False
 
     self._initialize_items()
 
@@ -106,8 +114,31 @@ class ModelsLayout(Widget):
                                         1, None, True, "", style.BUTTON_ACTION_WIDTH, None, True,
                                         lambda v: f"{v / 100:.2f} m")
 
-    self.items = [self.small_model_item, self.big_model_item, self.cancel_download_item, self.download_item, self.refresh_item, self.clear_cache_item,
-                  self.lane_turn_value_control, self.delay_control]
+    self.accelerator_item = ListItemSP(
+      title="外置大模型 / Accelerator Link",
+      description="停车未挂挡或未启用辅助驾驶时可切换；切换后无需重启，通常数秒内自动接入或回退。",
+      action_item=ScrollingButtonAction("切换"),
+      callback=self._toggle_accelerator,
+      inline=False,
+    )
+    self.accelerator_item.action_item.set_value(
+      "外置笔记本运行" if self._accelerator_config.get("enabled") else "本地运行",
+      ON_COLOR if self._accelerator_config.get("enabled") else style.ITEM_TEXT_VALUE_COLOR,
+    )
+    # 调试日志开关：默认关闭；开启后远程链路关键事件异步写入 /data/accelerator/remote_debug.log
+    self.accelerator_debug_item = ListItemSP(
+      title="外置大模型调试日志",
+      description="开启后把远程链路关键事件（连接/握手、每帧耗时、超时与降级原因、传输模式）写入设备 "
+                  "/data/accelerator/remote_debug.log；有界轮转、只追加。默认关闭，关闭时零写盘。",
+      action_item=ScrollingButtonAction("切换"),
+      callback=self._toggle_accelerator_debug,
+      inline=False,
+    )
+    self._update_accelerator_debug_item()
+    self.accelerator_panel = AcceleratorLinkPanel()
+    self.items = [self.small_model_item, self.big_model_item, self.accelerator_item, self.accelerator_debug_item,
+                  self.accelerator_panel, self.cancel_download_item, self.download_item, self.refresh_item,
+                  self.clear_cache_item, self.lane_turn_value_control, self.delay_control]
 
   def _update_lagd_description(self, lagd_toggle: bool):
     desc = tr("Enable this for the car to learn and adapt its steering response time. Disable to use a fixed steering response time. " +
@@ -140,6 +171,81 @@ class ModelsLayout(Widget):
     dialog = ConfirmDialog(tr("This will delete ALL downloaded models from the cache except the currently active model. Are you sure?"),
                            tr("Clear Cache"), callback=_callback)
     gui_app.push_widget(dialog)
+
+  def _toggle_accelerator(self):
+    if not self._accelerator_switch_allowed() or self._accelerator_write_pending:
+      return
+    enabled = not self._accelerator_config.get("enabled", False)
+    self._accelerator_write_pending = True
+    self._accelerator_write_error = None
+
+    def _write():
+      try:
+        write_enabled(enabled)
+        self._accelerator_write_error = None
+      except Exception as exc:
+        self._accelerator_write_error = f"配置写入失败：{exc}"
+      finally:
+        self._accelerator_write_pending = False
+
+    threading.Thread(target=_write, name="accelerator-config-write", daemon=True).start()
+
+  def _update_accelerator_debug_item(self):
+    on = self._accelerator_config.get("debug_log") is True
+    self.accelerator_debug_item.action_item.set_value(
+      "开启" if on else "关闭",
+      ON_COLOR if on else style.ITEM_TEXT_VALUE_COLOR,
+    )
+
+  def _toggle_accelerator_debug(self):
+    """切换调试日志；不依赖驾驶状态（只影响日志，不影响链路门禁）。"""
+    if self._accelerator_debug_write_pending:
+      return
+    enabled = not (self._accelerator_config.get("debug_log") is True)
+    self._accelerator_debug_write_pending = True
+    self._accelerator_write_error = None
+
+    def _write():
+      try:
+        write_debug_log(enabled)
+        self._accelerator_write_error = None
+      except Exception as exc:
+        self._accelerator_write_error = f"配置写入失败：{exc}"
+      finally:
+        self._accelerator_debug_write_pending = False
+
+    threading.Thread(target=_write, name="accelerator-debug-write", daemon=True).start()
+
+  @staticmethod
+  def _accelerator_state_received() -> bool:
+    """是否已收到 selfdriveState。
+
+    注意：cereal 的 SubMaster **没有实现 __contains__**，`"x" in sm` 会退化成
+    `sm[0]` 并抛 `KeyError: 0`（真实崩溃事故）。因此必须用只读字典的 `.get()`。
+    """
+    sm = ui_state.sm
+    try:
+      return bool(sm.seen.get("selfdriveState", False)) and bool(sm.alive.get("selfdriveState", False))
+    except Exception:
+      return False
+
+  @staticmethod
+  def _accelerator_engaging() -> bool:
+    """辅助驾驶是否已启用；无法判定时**保守视为已启用**（不可切换）。"""
+    if not ModelsLayout._accelerator_state_received():
+      return True
+    try:
+      return bool(ui_state.sm["selfdriveState"].enabled)
+    except Exception:
+      return True
+
+  @staticmethod
+  def _accelerator_switch_allowed() -> bool:
+    """是否可切换外置/内置：offroad 直接允许；onroad 则需已收到 selfdriveState 且未启用辅助驾驶。"""
+    if ui_state.is_offroad():
+      return True
+    return not ModelsLayout._accelerator_engaging()
+
 
   def _handle_bundle_download_progress(self):
     self.cancel_download_item.set_visible(False)
@@ -344,6 +450,34 @@ class ModelsLayout(Widget):
     self.small_model_item.action_item.set_enabled(offroad)
     self.big_model_item.action_item.set_enabled(offroad)
     self.small_model_item.set_description("" if offroad else tr("Only available when vehicle is off, or always offroad mode is on"))
+    self._accelerator_config, self._accelerator_status = get_accelerator_snapshot()
+    engaging = ModelsLayout._accelerator_engaging()
+    switch_allowed = self._accelerator_switch_allowed()
+    accelerator_enabled = switch_allowed and not self._accelerator_write_pending
+    self.accelerator_item.action_item.set_enabled(accelerator_enabled)
+    self.accelerator_item.set_enabled(accelerator_enabled)
+    self.accelerator_item.action_item.set_value(
+      "写入中…" if self._accelerator_write_pending else
+      "外置笔记本运行" if self._accelerator_config.get("enabled") else "本地运行",
+      ON_COLOR if self._accelerator_config.get("enabled") else style.ITEM_TEXT_VALUE_COLOR,
+    )
+    description = "停车未挂挡或未启用辅助驾驶时可切换；切换后无需重启，通常数秒内自动接入或回退。"
+    # 断链时明确告诉用户「正在自己重连（退避 N 秒）」/「已恢复 · 外置运行」/「本地兜底」，
+    # 避免面板与状态行看起来跟「一切正常」一样。这里必须复用面板标题的同一句话 ——
+    # 两行紧挨着，说法不一致比不说更让人怀疑。
+    headline = get_accelerator_panel_headline()
+    if headline:
+      description += f" 当前：{headline}。"
+    if engaging:
+      description += " 行驶中已锁定。"
+    elif not ModelsLayout._accelerator_state_received() and not offroad:
+      description += " 等待辅助驾驶状态，暂不可切换。"
+    self.accelerator_item.set_description(description)
+    self.accelerator_item.show_description(not switch_allowed or self._accelerator_write_pending)
+    self._update_accelerator_debug_item()
+    self.accelerator_debug_item.action_item.set_enabled(not self._accelerator_debug_write_pending)
+    self.accelerator_panel.update_snapshot(self._accelerator_config, self._accelerator_status,
+                                           self._accelerator_write_error)
 
   def _render(self, rect):
     self._scroller.render(rect)
