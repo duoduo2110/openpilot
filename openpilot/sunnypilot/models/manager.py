@@ -358,7 +358,9 @@ class ModelManagerSP:
         carry_over_picks(self.params, self.source_models)
         validate_active_bundles(self.params, self.source_models)
         self.active_bundle = get_active_bundle(self.params, chestnut=self.chestnut_present)
-        maybe_apply_default_model(self.params, self.source_models["qcom"])
+        # The default is the stock runner, as on the reference branch: never queue the Firehose
+        # tinygrad bundle automatically. Its modeld_v2 binary is not built on every device, so a
+        # tinygrad default left modeld with nothing to run and the car stuck on "waiting to start".
 
         if self.chestnut_present and get_selected_bundle(self.params, "chestnut") is not None and get_selected_bundle(self.params, "qcom") is None:
           if self.params.get("ModelManager_DownloadRef") is None:
