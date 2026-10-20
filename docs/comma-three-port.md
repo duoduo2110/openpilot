@@ -4,12 +4,16 @@ This documents the `-tici` branches: what the comma three needs that the comma 3
 not, why each difference exists, and what is still unverified.
 
 **Status: published as `c3-zp`, and unflown.** `c3-zp` lives on `duoduo2110/openpilot` and is the
-comma three branch of this fork: `develop-tici` (the original C3 port, 2026-09-09) merged onto
-current `develop` (2026-10-16), with the comma three panda/opendbc pins carried on
-`duoduo2110/panda:c3-zp` and `duoduo2110/opendbc:c3-zp`. Upstream retired the `-tici` branch on
-2026-10-10 (`6b79bf63e`), which also removed the AGNOS boot tooling; this branch restores it.
-The AGNOS boot image is built, published and verified, and `tici_agnos.json` points at it with no
-placeholders left.
+comma three branch of this fork. It starts from `develop-tici` (the original C3 port, 2026-09-09)
+merged onto `develop` (2026-10-16), then aligns the device path with the proven
+`mr-one/openpilot:c3-dev` build: **`tici` is mapped to the `tizi` path** (`tici -> TIZI`), cameras
+are `OS04C10` / `OX03C10`, the amplifier is the single `MAX98089` set, and AGNOS uses the official
+`agnos.json`. The AR0231 / tici-manifest / `/data/media` code that came with `develop-tici` is kept
+in tree but is no longer on the active path.
+
+The comma three panda/opendbc pins are carried on `duoduo2110/panda:c3-zp` and
+`duoduo2110/opendbc:c3-zp`; the F4 panda work adds the USB OTG reset, clock fallback and board
+fallback that the mr-one build relies on, plus a link-time `.bss` guard.
 
 Install `c3-zp` through the custom software URL in the setup flow.
 
@@ -54,6 +58,14 @@ sunnypilot's own answer is a frozen branch, `sync-20251218-tici`, which is sunny
 so nothing from it applies directly, but it is the reference for what the restored code should say.
 
 ## What this branch restores
+
+> **Note (2026-10-20).** The bullets below describe the original `develop-tici` port. `c3-zp`
+> now follows the mr-one comma-three build, which treats the device as `tizi`: `camerad` probes
+> `OS04C10`/`OX03C10` (no AR0231), the amplifier uses the single `MAX98089` set, `set_ir_power`
+> returns only for `tizi`, the `xhci` IRQ affinity and the NVMe/loggerd exceptions are gone, the UI
+> runs at the default FPS with the default font scale, and AGNOS uses the official `agnos.json`
+> (no tici boot manifest, no `/data/media` mount). The AR0231 driver and `tici_agnos.json` remain
+> in tree but are not used. See the git history of this file for the earlier implementation.
 
 - **`camerad`**: the AR0231 driver, restored as it was. `SensorInfo` has not changed since the
   removal, so the driver needed no adaptation. All three cameras on a comma three are AR0231, so
