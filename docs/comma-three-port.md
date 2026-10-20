@@ -159,11 +159,11 @@ form; treat the first drive accordingly.
 
 ### panda, in detail
 
-The `c3` branch of our panda fork restores the F4 target and the dos board. It builds clean under
-`-Werror` for both targets and the firmware fits comfortably: 95104 B of flash (9%) and 199168 of
-262144 B RAM (76%), which `check_fw_size.py` accepts. `board/boards/board_declarations.h` had not
-changed since the reference C3 branch was cut, so `dos.h` matches today's `struct board` field for
-field.
+The `c3-zp` branch of `duoduo2110/panda` restores the F4 target and the dos board. It builds clean
+under `-Werror` for both targets and the firmware fits comfortably, leaving plenty of headroom:
+84508 B of flash of 1048576 B (8.06%) and 89180 B of dtcmram of 131068 B (68.04%), which
+`check_fw_size.py` accepts. `board/boards/board_declarations.h` had not changed since the reference
+C3 branch was cut, so `dos.h` matches today's `struct board` field for field.
 
 Two gaps remain, both narrower than they were:
 
@@ -182,8 +182,8 @@ how the dos has always run.
 `CANPACKET_DATA_SIZE_MAX` is fixed at 64 in opendbc, which makes `CANPacket_t` 72 bytes. A bxCAN
 controller can never carry more than 8 data bytes, so on an F4 that is 56 bytes of padding per slot,
 and at upstream's ring depths it put `.bss` 66 KB past `_estack` with the stack landing inside the
-rx queue. `zoompilot/opendbc` branch `c3` sizes the packet for the controller instead, which is what
-the F4 build did before the target was deleted.
+rx queue. `duoduo2110/opendbc` branch `c3-zp` sizes the packet for the controller instead, which is
+what the F4 build did before the target was deleted.
 
 The same condition restores the `CANFD` gate, so `hyundai_canfd` and `volkswagen_meb` are no longer
 compiled into a classic build at all rather than being accepted and failing safe at runtime.

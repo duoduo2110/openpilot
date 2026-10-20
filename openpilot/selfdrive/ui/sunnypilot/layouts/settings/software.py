@@ -59,7 +59,7 @@ class SoftwareLayoutSP(SoftwareLayout):
     top_level_branches = [current_git_branch, "release-mici", "release-tizi", "staging", "dev", "master"]
 
     if HARDWARE.get_device_type() == "tici":
-      top_level_branches = [current_git_branch, *sorted(TICI_BRANCHES), "develop-tici"]
+      top_level_branches = [current_git_branch, *sorted(TICI_BRANCHES)]
       branches = [b for b in branches if is_tici_branch(b)]
 
     top_level_nodes = [TreeNode(b, {'display_name': b}) for b in top_level_branches if b in branches]
