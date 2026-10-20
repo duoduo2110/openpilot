@@ -24,7 +24,7 @@ from openpilot.common.realtime import Ratekeeper
 
 from openpilot.system.ui.sunnypilot.lib.application import GuiApplicationExt
 
-_DEFAULT_FPS = int(os.getenv("FPS", {'tizi': 20, 'tici': 20}.get(HARDWARE.get_device_type(), 60)))
+_DEFAULT_FPS = int(os.getenv("FPS", {'tizi': 20}.get(HARDWARE.get_device_type(), 60)))
 FPS_LOG_INTERVAL = 5  # Seconds between logging FPS drops
 FPS_DROP_THRESHOLD = 0.9  # FPS drop threshold for triggering a warning
 FPS_CRITICAL_THRESHOLD = 0.5  # Critical threshold for triggering strict actions
@@ -32,11 +32,7 @@ MOUSE_THREAD_RATE = 140  # touch controller runs at 140Hz
 MAX_TOUCH_SLOTS = 2
 TOUCH_HISTORY_TIMEOUT = 3.0  # Seconds before touch points fade out
 
-# Nothing sets BIG on a device, so FONT_SCALE, the default font weight and all of
-# system/ui/text.py were sizing for the comma four's 536x240 panel on a 2160x1080
-# screen. Scoped to tici: the comma 3X has the same bug, but restyling every
-# existing 3X install is not this branch's business.
-BIG_UI = os.getenv("BIG", "0") == "1" or HARDWARE.get_device_type() == 'tici'
+BIG_UI = os.getenv("BIG", "0") == "1"
 ENABLE_VSYNC = os.getenv("ENABLE_VSYNC", "0") == "1"
 SHOW_FPS = os.getenv("SHOW_FPS") == "1"
 SHOW_TOUCHES = os.getenv("SHOW_TOUCHES") == "1"

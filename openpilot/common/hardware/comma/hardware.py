@@ -108,7 +108,7 @@ class HardwareComma(HardwareBase):
       return int(f.read())
 
   def set_ir_power(self, percent: int):
-    if self.get_device_type() in ("tici", "tizi"):
+    if self.get_device_type() == "tizi":
       return
 
     value = int((percent / 100) * 300)
@@ -384,9 +384,6 @@ class HardwareComma(HardwareBase):
 
     # pandad core
     affine_irq(3, "spi_geni")         # SPI
-    if self.get_device_type() == "tici":
-      affine_irq(3, "xhci-hcd:usb3")  # aux panda USB (or potentially anything else on USB)
-      affine_irq(3, "xhci-hcd:usb1")  # internal panda USB (also modem)
     try:
       pid = subprocess.check_output(["pgrep", "-f", "spi0"], encoding='utf8').strip()
       subprocess.call(["sudo", "chrt", "-f", "-p", "1", pid])
@@ -398,9 +395,6 @@ class HardwareComma(HardwareBase):
     ms = self.get_modem_state()
     return ms.get('tx_bytes', -1), ms.get('rx_bytes', -1)
 
-  # 10 ms is tuned for an H7 that comes back on SPI, and the comma three's dos
-  # re-enumerates on USB over the same interval. Keep both devices on the same
-  # reset/recover timing so a tici behaves exactly like a tizi.
   def reset_internal_panda(self):
     gpio_init(GPIO.STM_RST_N, True)
     gpio_init(GPIO.STM_BOOT0, True)

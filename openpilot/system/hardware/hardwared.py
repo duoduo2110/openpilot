@@ -8,7 +8,6 @@ import sys
 import threading
 import time
 from collections import OrderedDict, namedtuple
-from pathlib import Path
 
 import openpilot.cereal.messaging as messaging
 from openpilot.cereal import log
@@ -378,7 +377,7 @@ def hardware_thread(end_event, hw_queue) -> None:
     # - TIZI, or
     # - TICI and channel_type is "tici"
     build_metadata = get_build_metadata()
-    is_unsupported_combo = COMMA_HARDWARE and HARDWARE.get_device_type() == "tici" and build_metadata.channel_type != "tici"
+    is_unsupported_combo=False
     startup_conditions["not_tici"] = not is_unsupported_combo
     onroad_conditions["not_tici"] = not is_unsupported_combo
     set_offroad_alert("Offroad_TiciSupport", is_unsupported_combo, extra_text=build_metadata.channel)
@@ -391,12 +390,6 @@ def hardware_thread(end_event, hw_queue) -> None:
 
     if show_alert:
       msg.deviceState.fanSpeedPercentDesired = 100
-
-    # TODO: this should move to HardwareComma.initialize_hardware, but we currently can't import params there
-    if COMMA_HARDWARE and HARDWARE.get_device_type() == "tici":
-      if not os.path.isfile("/persist/comma/living-in-the-moment"):
-        if not Path("/data/media").is_mount():
-          set_offroad_alert_if_changed("Offroad_StorageMissing", True)
 
     # Handle offroad/onroad transition
     should_start = all(onroad_conditions.values())

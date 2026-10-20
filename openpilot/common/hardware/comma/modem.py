@@ -312,20 +312,15 @@ class Modem:
       # clear initial EPS bearer APN (some carriers reject the default)
       'AT+CGDCONT=0,"IP",""',
 
+      # SIM hot swap
+      'AT+QSIMDET=1,0',
+      'AT+QSIMSTAT=1',
+
       # configure modem as data-centric
       'AT+QNVW=5280,0,"0102000000000000"',
       'AT+QNVFW="/nv/item_files/ims/IMS_enable",00',
       'AT+QNVFW="/nv/item_files/modem/mmode/ue_usage_setting",01',
     ]
-    # SIM hot swap detection is not routed on the comma three. Upstream gated
-    # these two off for tici before the tici paths were removed, and the
-    # C3 validated sunnypilot branch keeps that gate.
-    if get_device_model() != "tici":
-      cmds += [
-        'AT+QSIMDET=1,0',
-        'AT+QSIMSTAT=1',
-      ]
-
     for c in cmds:
       self._at(c)
 
