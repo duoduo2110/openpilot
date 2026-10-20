@@ -40,7 +40,9 @@ mac_brew_string = f'HOME={os.path.expanduser("~")}' if arch == 'Darwin' else ''
 warp_deps = [File("#openpilot/system/camerad/cameras/nv12_info.py")]
 compiler = Dir('#tinygrad_repo/examples/openpilot').abspath
 # CPU 7 is isolated with isolcpus on AGNOS, so explicitly pin the compiler to it.
-taskset = 'taskset -c 7 ' if arch == 'comma_arm64' else ''
+# The comma three brings up four CPUs (0-3) only, where taskset -c 7 fails with
+# EINVAL and aborts the build, so pin to the highest online CPU instead.
+taskset = f'taskset -c {max((os.cpu_count() or 1) - 1, 0)} ' if arch == 'comma_arm64' else ''
 
 def chestnut_action(command):
   def do_compile(target, source, env):
