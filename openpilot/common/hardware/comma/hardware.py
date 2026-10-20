@@ -304,7 +304,7 @@ class HardwareComma(HardwareBase):
     if self.amplifier is not None:
       self.amplifier.set_global_shutdown(amp_disabled=powersave_enabled)
       if not powersave_enabled:
-        self.amplifier.initialize_configuration(self.get_device_type())
+        self.amplifier.initialize_configuration()
 
     # *** CPU config ***
 
@@ -342,7 +342,7 @@ class HardwareComma(HardwareBase):
 
   def initialize_hardware(self):
     if self.amplifier is not None:
-      self.amplifier.initialize_configuration(self.get_device_type())
+      self.amplifier.initialize_configuration()
 
     # Allow hardwared to write engagement status to kmsg
     subprocess.run("sudo chmod a+w /dev/kmsg", shell=True)
