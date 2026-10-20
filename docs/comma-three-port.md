@@ -3,13 +3,15 @@
 This documents the `-tici` branches: what the comma three needs that the comma 3X and comma 4 do
 not, why each difference exists, and what is still unverified.
 
-**Status: published, and unflown.** `develop-tici` is on `zoompilot/zoompilot` and is the only
-tici branch, so every migration and the branch picker point at it.
-`zoompilot/panda` branch `c3` carries the restored F4 target and the pinned commit resolves on the
-remote. The AGNOS boot image is built, published and verified, and `tici_agnos.json` points at it
-with no placeholders left.
+**Status: published as `c3-zp`, and unflown.** `c3-zp` lives on `duoduo2110/openpilot` and is the
+comma three branch of this fork: `develop-tici` (the original C3 port, 2026-09-09) merged onto
+current `develop` (2026-10-16), with the comma three panda/opendbc pins carried on
+`duoduo2110/panda:c3-zp` and `duoduo2110/opendbc:c3-zp`. Upstream retired the `-tici` branch on
+2026-10-10 (`6b79bf63e`), which also removed the AGNOS boot tooling; this branch restores it.
+The AGNOS boot image is built, published and verified, and `tici_agnos.json` points at it with no
+placeholders left.
 
-Install `develop-tici` through the custom software URL in the setup flow.
+Install `c3-zp` through the custom software URL in the setup flow.
 
 Nothing here has run on a physical comma three. Where a known good artifact exists the work is
 checked against it, which is not the same as having driven a car. Read
@@ -201,7 +203,7 @@ recognized as tici, so a device on the wrong branch cannot fix itself from the s
 equivalents. `c3-zp` is registered explicitly in `TICI_BRANCHES` (`is_tici_branch()`), so it is
 treated exactly like a `-tici` channel by the updater, `hardwared` and the branch picker.
 
-Install `c3-zp` from `duoduo2110/zoompilot` via the custom software URL in the setup flow. It is the
+Install `c3-zp` from `duoduo2110/openpilot` via the custom software URL in the setup flow. It is the
 `c3-zp` fork branch, built from `develop-tici` merged onto current `develop`, with the comma three
 panda/opendbc pins carried in `duoduo2110/panda` and `duoduo2110/opendbc`.
 
