@@ -13,23 +13,14 @@ import requests
 SPARSE_CHUNK_FMT = struct.Struct('H2xI4x')
 
 AGNOS_MANIFEST_FILE = "openpilot/system/hardware/comma/agnos.json"
-AGNOS_MANIFEST_FILE_TICI = "openpilot/system/hardware/comma/tici_agnos.json"
 ABCTL = "abctl"
 ACTIVATION_ATTEMPTS = 3
 ACTIVATION_RETRY_DELAY = 1
 
 
-def get_device_model() -> str:
-  try:
-    with open("/sys/firmware/devicetree/base/model") as f:
-      return f.read().strip("\x00").strip().split("comma ")[-1]
-  except OSError:
-    return ""
-
-
 def get_manifest_file() -> str:
-  """The comma three needs its own boot image; every other partition is comma's."""
-  return AGNOS_MANIFEST_FILE_TICI if get_device_model() == "tici" else AGNOS_MANIFEST_FILE
+  """The manifest is comma's for every device, including the comma three."""
+  return AGNOS_MANIFEST_FILE
 
 
 

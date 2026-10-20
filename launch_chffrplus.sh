@@ -21,9 +21,6 @@ function agnos_init {
   if [ "$(< /VERSION)" != "$AGNOS_VERSION" ]; then
     AGNOS_PY="$DIR/openpilot/common/hardware/comma/agnos.py"
     MANIFEST="$DIR/openpilot/system/hardware/comma/agnos.json"
-    if grep -qa "comma tici" /sys/firmware/devicetree/base/model 2>/dev/null; then
-      MANIFEST="$DIR/openpilot/system/hardware/comma/tici_agnos.json"
-    fi
     if "$AGNOS_PY" --verify "$MANIFEST"; then
       sudo reboot
     fi
@@ -31,21 +28,6 @@ function agnos_init {
       "$DIR/openpilot/common/hardware/comma/updater" "$AGNOS_PY" "$MANIFEST"
     done
   fi
-}
-
-# AGNOS 13 removed the NVMe from the system image's fstab, in the same commit that
-# deleted the comma three's device tree. openpilot did not follow: hw.py still logs
-# to /data/media and hardwared raises Offroad_StorageMissing on a tici when that is
-# not a mount. Mount it here rather than shipping a patched system image. Never
-# format: an unformatted drive is a factory reset, which is the user's call.
-function tici_storage_init {
-  grep -qa "comma tici" /sys/firmware/devicetree/base/model 2>/dev/null || return 0
-  [ -e /dev/nvme0n1 ] || return 0
-  grep -q " /data/media " /proc/mounts && return 0
-
-  sudo mkdir -p /data/media
-  sudo mount -o discard,nosuid,nodev /dev/nvme0n1 /data/media \
-    || echo "could not mount /dev/nvme0n1 at /data/media"
 }
 
 function launch {
@@ -102,7 +84,6 @@ function launch {
   # hardware specific init
   if [ -f /AGNOS ]; then
     agnos_init
-    tici_storage_init
   fi
 
   # write tmux scrollback to a file

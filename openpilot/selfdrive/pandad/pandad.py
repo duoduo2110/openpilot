@@ -108,64 +108,54 @@ def main() -> None:
   except Exception:
     cloudlog.exception("pandad.uncaught_exception")
 
-  # The comma three's internal panda is a dos, and it is on USB.
-  usb_panda = HARDWARE.get_device_type() == "tici"
-
   count = 0
   recover_attempts = 0
   while not do_exit:
     try:
       cloudlog.event("pandad.flash_and_connect", count=count)
-      if usb_panda:
-        # The comma three's internal panda is a dos on USB, so unlike the H7 on
-        # SPI it has to re-enumerate on USB after a reset. Only reset it when it
-        # is actually missing instead of resetting on every pass.
-        panda_serials = Panda.list()
-        if not panda_serials:
-          cloudlog.info("No pandas found, resetting internal panda")
-          HARDWARE.reset_internal_panda()
-          # The internal panda takes a few seconds to boot its app after a
-          # reset. Wait for it to come back in normal (non-bootstub) mode before
-          # deciding whether to flash.
-          for _ in range(40):
-            panda_serials = Panda.list()
-            if len(panda_serials) == 1:
-              try:
-                with Panda(panda_serials[0]) as p:
-                  if not p.bootstub:
-                    break
-              except Exception:
-                pass
-            time.sleep(0.5)
-          if panda_serials:
-            recover_attempts = 0
-          else:
-            # Never force a board that already has firmware into the ROM
-            # bootloader right away: recover() erases the app sector before
-            # reflashing. Only a truly blank board needs it, and that is
-            # detected after several normal resets fail to produce a panda.
-            if not PandaDFU.list() and recover_attempts < 3:
-              recover_attempts += 1
-              count += 1
-              cloudlog.warning(f"Panda did not appear after reset ({recover_attempts}/3), retrying normal reset...")
-              continue
-            recover_attempts = 0
-            cloudlog.info("Panda missing after normal resets, entering ROM bootloader (recover)...")
-            HARDWARE.recover_internal_panda()
-            time.sleep(2)
-      elif (count % 2) == 0:
+      # A panda is only reset when none is present: the comma three's internal
+      # dos re-enumerates on USB after a reset, so resetting on every pass would
+      # never let it come back. Every device now uses this path.
+      panda_serials = Panda.list()
+      if not panda_serials:
+        cloudlog.info("No pandas found, resetting internal panda")
         HARDWARE.reset_internal_panda()
-      else:
-        HARDWARE.recover_internal_panda()
+        # The internal panda takes a few seconds to boot its app after a
+        # reset. Wait for it to come back in normal (non-bootstub) mode before
+        # deciding whether to flash.
+        for _ in range(40):
+          panda_serials = Panda.list()
+          if len(panda_serials) == 1:
+            try:
+              with Panda(panda_serials[0]) as p:
+                if not p.bootstub:
+                  break
+            except Exception:
+              pass
+          time.sleep(0.5)
+        if panda_serials:
+          recover_attempts = 0
+        else:
+          # Never force a board that already has firmware into the ROM
+          # bootloader right away: recover() erases the app sector before
+          # reflashing. Only a truly blank board needs it, and that is
+          # detected after several normal resets fail to produce a panda.
+          if not PandaDFU.list() and recover_attempts < 3:
+            recover_attempts += 1
+            count += 1
+            cloudlog.warning(f"Panda did not appear after reset ({recover_attempts}/3), retrying normal reset...")
+            continue
+          recover_attempts = 0
+          cloudlog.info("Panda missing after normal resets, entering ROM bootloader (recover)...")
+          HARDWARE.recover_internal_panda()
+          time.sleep(2)
       count += 1
 
-      # This loop was written for an H7 on SPI, which is addressable again
-      # milliseconds after a reset, so it resets on every pass and never waits.
-      # A dos has to re-enumerate on USB first. Without this the list below runs
-      # while the panda is still coming up, the next pass drops it into DFU, and
-      # the pass after that reflashes a panda that was never broken.
-      if usb_panda:
-        time.sleep(3)
+      # A reset has to be followed by a wait: a dos re-enumerates on USB, which
+      # takes seconds. Without this the list below runs while the panda is still
+      # coming up, the next pass drops it into DFU, and the pass after that
+      # reflashes a panda that was never broken.
+      time.sleep(3)
 
       # Flash all Pandas in DFU mode
       for serial in PandaDFU.list():
@@ -188,8 +178,7 @@ def main() -> None:
         os.environ['MANAGER_DAEMON'] = 'pandad'
         # give the python libusb handles a moment to fully release the USB
         # interface before handing off to the C++ pandad
-        if usb_panda:
-          time.sleep(2)
+        time.sleep(2)
         process = subprocess.Popen(["./pandad", panda_serials[0]], cwd=os.path.join(BASEDIR, "openpilot/selfdrive/pandad"))
         process.wait()
     # TODO: wrap all panda exceptions in a base panda exception

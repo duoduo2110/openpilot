@@ -364,9 +364,6 @@ function op_check_agnos_update() {
   echo -e "${BOLD}AGNOS update available:${NC} $current_version → $target_version"
   if read -r -p "Install it now? [y/N] " choice && [[ "$choice" =~ ^[Yy]$ ]]; then
     local manifest="$OPENPILOT_ROOT/openpilot/system/hardware/comma/agnos.json"
-    if grep -qa "comma tici" /sys/firmware/devicetree/base/model 2>/dev/null; then
-      manifest="$OPENPILOT_ROOT/openpilot/system/hardware/comma/tici_agnos.json"
-    fi
     op_run_command "$OPENPILOT_ROOT/openpilot/common/hardware/comma/agnos.py" --swap "$manifest"
 
     if read -r -p "Reboot now to apply the update? [y/N] " choice && [[ "$choice" =~ ^[Yy]$ ]]; then
