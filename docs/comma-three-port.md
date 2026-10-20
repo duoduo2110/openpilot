@@ -193,13 +193,17 @@ longer do on an F4, so `can_comms.h` now drops an over-long packet instead.
 
 ## Installing on a comma three
 
-The branch **must** end in `-tici`. `openpilot/common/version.py` derives `channel_type` from that
-suffix, and `hardwared.py` refuses to go onroad on a comma three whose channel is not `tici`,
-showing `Offroad_TiciSupport`. The branch picker also hides every branch without the suffix, so a
-device on the wrong branch cannot fix itself from the screen. `SP_BRANCH_MIGRATIONS` therefore maps
-`develop`, `main` and `danger-unstable` to their `-tici` equivalents.
+The branch normally has to end in `-tici`: `openpilot/common/version.py` derives `channel_type`
+from that suffix, and `hardwared.py` refuses to go onroad on a comma three whose channel is not
+`tici`, showing `Offroad_TiciSupport`. The branch picker also hides every branch that is not
+recognized as tici, so a device on the wrong branch cannot fix itself from the screen.
+`SP_BRANCH_MIGRATIONS` therefore maps `develop`, `main` and `danger-unstable` to their `-tici`
+equivalents. `c3-zp` is registered explicitly in `TICI_BRANCHES` (`is_tici_branch()`), so it is
+treated exactly like a `-tici` channel by the updater, `hardwared` and the branch picker.
 
-Install `develop-tici` via the custom software URL in the setup flow.
+Install `c3-zp` from `duoduo2110/zoompilot` via the custom software URL in the setup flow. It is the
+`c3-zp` fork branch, built from `develop-tici` merged onto current `develop`, with the comma three
+panda/opendbc pins carried in `duoduo2110/panda` and `duoduo2110/opendbc`.
 
 Do **not** put a comma three on `main`. That branch is prebuilt, and the driving model pkl is
 compiled for a single camera resolution chosen by the machine that built it. A source build on the

@@ -4,10 +4,27 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
+import contextlib
+import os
+import time
+
+from openpilot.common.hardware.hw import Paths
 from openpilot.selfdrive.ui.ui_state import ui_state, ChestnutState
 from openpilot.sunnypilot.models.fetcher import get_cached_bundles
 from openpilot.sunnypilot.models.helpers import get_active_source, get_selected_bundle, resolve_bundle_by_ref
-from openpilot.sunnypilot.models.model_name import DEFAULT_BIG_MODEL, DEFAULT_MODEL
+from openpilot.sunnypilot import jetlink_adapter
+from openpilot.sunnypilot.models.model_name import DEFAULT_MODEL
+
+
+def model_cache_size_mb() -> float:
+  """Bytes on disk under the model cache directory, in MB."""
+  model_root = Paths.model_root()
+  total = 0
+  if os.path.isdir(model_root):
+    for name in os.listdir(model_root):
+      with contextlib.suppress(OSError):
+        total += os.path.getsize(os.path.join(model_root, name))
+  return total / (1024 ** 2)
 
 
 def active_source() -> str:
@@ -23,7 +40,12 @@ def bundles_for_source(source: str):
 
 
 def default_model(source: str) -> str:
-  return DEFAULT_BIG_MODEL if source == 'chestnut' else DEFAULT_MODEL
+  """What an empty slot runs. The big slot's is the chestnut's model in the tree
+  when a board is fitted; with none, the slot is jetlink's, whose
+  default is its own."""
+  if source != 'chestnut':
+    return DEFAULT_MODEL
+  return jetlink_adapter.default_big_model(ui_state.chestnut_present, ui_state.jetlink)
 
 
 def default_model_name(source: str) -> str:
@@ -31,16 +53,24 @@ def default_model_name(source: str) -> str:
 
 
 def big_model_state() -> str | None:
-  """'failed' | 'loading' | None, from the same state the icons render."""
+  """'failed' | 'loading' | 'ready' | None, from the same state the icons render."""
   return {ChestnutState.UNCOMPILED: 'failed',
           ChestnutState.FAILED: 'failed',
-          ChestnutState.LOADING: 'loading'}.get(ui_state.chestnut_state)
+          ChestnutState.LOADING: 'loading',
+          ChestnutState.WAITING: 'ready'}.get(ui_state.chestnut_state)
 
 
 def carrying_model() -> tuple[str | None, str | None, str | None]:
   """(source, internal name, display name) of what actually drives. Runner-matched:
   when a Default big cannot carry, stock modeld runs the Default small, never the
   small slot's pick; a custom big has no automatic fallback yet -> (None, None, None)."""
+  # only when no board is fitted does the chestnut state describe the jetlink view
+  if not ui_state.chestnut_present and ui_state.chestnut_state == ChestnutState.ACTIVE:
+    jetlink = ui_state.jetlink
+    # jetlink's stand-in, while the pick is prepared, is its active model
+    name = jetlink.active_model if jetlink is not None else None
+    if name is not None:
+      return 'accelerator', name, name
   source = active_source()
   if source == "chestnut":
     bundle = get_selected_bundle(ui_state.params, "chestnut")
@@ -83,3 +113,22 @@ def model_info() -> tuple[str, str, str]:
   active_name = active_bundle.displayName if active_bundle else default_model_name(source)
   other_name = other_bundle.displayName if other_bundle else default_model_name(other)
   return source, active_name, other_name
+
+
+# mirrors the manager's ModelCache keys; the manager restamps them on a successful fetch
+MODEL_SYNC_KEYS = ("ModelManager_LastSyncTime", "ModelManager_LastSyncTime_Chestnut")
+MODEL_SYNC_TIMEOUT = 20.0
+
+
+def refresh_model_list() -> None:
+  # zeroing the sync keys makes the manager refetch each manifest on its next tick
+  for key in MODEL_SYNC_KEYS:
+    ui_state.params.put(key, 0)
+
+
+def refresh_in_progress(started_at: float | None) -> bool:
+  """Whether a user refresh is still outstanding. A failed fetch never restamps the
+  sync keys, so the spinner is bounded by MODEL_SYNC_TIMEOUT rather than sticking."""
+  if started_at is None or time.monotonic() - started_at > MODEL_SYNC_TIMEOUT:
+    return False
+  return not all(ui_state.params.get(key) for key in MODEL_SYNC_KEYS)

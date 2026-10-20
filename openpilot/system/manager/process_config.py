@@ -13,6 +13,7 @@ from openpilot.sunnypilot.mapd.mapd_manager import MAPD_PATH
 
 from openpilot.sunnypilot.models.helpers import get_active_model_runner
 from openpilot.sunnypilot.sunnylink.utils import sunnylink_need_register, sunnylink_ready, use_sunnylink_uploader
+from openpilot.sunnypilot.system.manager.processes import extend_procs
 
 WEBCAM = os.getenv("USE_WEBCAM") is not None
 
@@ -67,10 +68,6 @@ def only_offroad(started: bool, params: Params, CP: car.CarParams) -> bool:
 
 def livestream(started: bool, params: Params, CP: car.CarParams) -> bool:
   return params.get_bool("IsLiveStreaming")
-
-def use_github_runner(started, params, CP: car.CarParams) -> bool:
-  return not PC and params.get_bool("EnableGithubRunner") and (
-    not params.get_bool("NetworkMetered") and not params.get_bool("GithubRunnerSufficientVoltage"))
 
 def use_copyparty(started, params, CP: car.CarParams) -> bool:
   return bool(params.get_bool("EnableCopyparty"))
@@ -185,10 +182,7 @@ procs += [
   # locationd
   NativeProcess("locationd_llk", "openpilot/sunnypilot/selfdrive/locationd", ["./locationd"], only_onroad),
 ]
-
-if os.path.exists("../../../release/ci/github_runner.sh"):
-  procs += [NativeProcess("github_runner_start", "release/ci",
-                          ["./github_runner.sh", "start"], and_(only_offroad, use_github_runner), sigkill=False)]
+procs = extend_procs(procs)
 
 if os.path.exists("../../sunnypilot/sunnylink/uploader.py"):
   procs += [PythonProcess("sunnylink_uploader", "openpilot.sunnypilot.sunnylink.uploader", use_sunnylink_uploader_shim)]

@@ -180,16 +180,13 @@ class Car:
     self.params.put("CarParamsSPPersistent", cp_sp_bytes)
 
     self.v_cruise_helper = VCruiseHelper(self.CP, self.CP_SP)
-    self.card_ext = CardExt(self.CP, self.CP_SP, self.params, self.sm, self.v_cruise_helper)
+    self.card_ext = CardExt(self.CP, self.CP_SP, self.params, self.sm, self.v_cruise_helper, self.CI)
 
     self.is_metric = self.params.get_bool("IsMetric")
     self.experimental_mode = self.params.get_bool("ExperimentalMode")
 
     # card is driven by can recv, expected at 100Hz
     self.rk = Ratekeeper(100, print_delay_threshold=None)
-
-    # log fingerprint in sentry
-    sunnypilot_interfaces.log_fingerprint(self.CP)
 
   def state_update(self) -> tuple[car.CarState, custom.CarStateSP, structs.RadarDataT | None]:
     """carState update loop, driven by can"""

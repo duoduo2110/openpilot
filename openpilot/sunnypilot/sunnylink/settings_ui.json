@@ -395,22 +395,6 @@
                   ]
                 },
                 {
-                  "key": "SpeedDependentTorqueToggle",
-                  "widget": "toggle",
-                  "title": "Speed-Dependent Self-Tune (Beta)",
-                  "description": "Learns separate torque parameters at different speeds. Improves steering at both low and high speeds for supported cars.",
-                  "enablement": [
-                    {
-                      "type": "offroad_only"
-                    },
-                    {
-                      "type": "param",
-                      "key": "LiveTorqueParamsToggle",
-                      "equals": true
-                    }
-                  ]
-                },
-                {
                   "key": "CustomTorqueParams",
                   "widget": "toggle",
                   "title": "Enable Custom Tuning",
@@ -511,8 +495,19 @@
                 {
                   "key": "TorqueControlTune",
                   "widget": "multiple_button",
-                  "title": "Torque Control Tune Version",
-                  "description": "Select the version of Torque Control Tune to use.",
+                  "title": "Torque Control Tune Version (Small Models)",
+                  "description": "Select the version of Torque Control Tune to use while the small model is driving.",
+                  "enablement": [
+                    {
+                      "type": "offroad_only"
+                    }
+                  ]
+                },
+                {
+                  "key": "TorqueControlTuneBig",
+                  "widget": "multiple_button",
+                  "title": "Torque Control Tune Version (Big Models)",
+                  "description": "Select the version of Torque Control Tune to use while a big model is driving.",
                   "enablement": [
                     {
                       "type": "offroad_only"
@@ -631,10 +626,30 @@
       "description": "Longitudinal control, speed limits, and cruise behavior",
       "sections": [
         {
-          "id": "core_cruise_features",
-          "title": "",
+          "id": "alpha_longitudinal",
+          "title": "Alpha Longitudinal",
           "description": "",
           "items": [
+            {
+              "key": "AlphaLongitudinalEnabled",
+              "widget": "toggle",
+              "needs_onroad_cycle": true,
+              "blocked": true,
+              "title": "sunnypilot Longitudinal Control (Alpha)",
+              "description": "WARNING: sunnypilot longitudinal control is in alpha for this car and will disable Automatic Emergency Braking (AEB). On this car, sunnypilot defaults to the car's built-in ACC instead of sunnypilot's longitudinal control. Enable this to switch to sunnypilot longitudinal control. Enabling Experimental mode is recommended when enabling sunnypilot longitudinal control alpha. Changing this setting will restart sunnypilot if the car is powered on.",
+              "visibility": [
+                {
+                  "type": "capability",
+                  "field": "alpha_long_available",
+                  "equals": true
+                }
+              ],
+              "enablement": [
+                {
+                  "type": "not_engaged"
+                }
+              ]
+            },
             {
               "key": "ExperimentalMode",
               "widget": "toggle",
@@ -668,6 +683,63 @@
               ]
             },
             {
+              "key": "ExperimentalModeSetSpeed",
+              "widget": "toggle",
+              "title": "Experimental Mode Speed Assist",
+              "description": "In Experimental Mode, gently raise speed toward the set speed when nothing calls for slowing down. Has no effect while Dynamic Experimental Control is on.",
+              "visibility": [
+                {
+                  "type": "capability",
+                  "field": "has_longitudinal_control",
+                  "equals": true
+                }
+              ],
+              "enablement": [
+                {
+                  "type": "capability",
+                  "field": "has_longitudinal_control",
+                  "equals": true
+                },
+                {
+                  "type": "param",
+                  "key": "DynamicExperimentalControl",
+                  "equals": false
+                }
+              ]
+            },
+            {
+              "key": "ExperimentalModeLeadGap",
+              "widget": "toggle",
+              "title": "Experimental Mode Lead Follow Assist",
+              "description": "Closes the gap to your driving personality's following distance behind a steady car. Never closer than chill mode. No effect while Dynamic Experimental Control is on.",
+              "visibility": [
+                {
+                  "type": "capability",
+                  "field": "has_longitudinal_control",
+                  "equals": true
+                }
+              ],
+              "enablement": [
+                {
+                  "type": "capability",
+                  "field": "has_longitudinal_control",
+                  "equals": true
+                },
+                {
+                  "type": "param",
+                  "key": "DynamicExperimentalControl",
+                  "equals": false
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "core_cruise_features",
+          "title": "",
+          "description": "",
+          "items": [
+            {
               "key": "DisengageOnAccelerator",
               "widget": "toggle",
               "title": "Disengage Cruise on Accelerator Pedal",
@@ -699,31 +771,6 @@
                   "equals": true
                 }
               ]
-            },
-            {
-              "key": "IntelligentCruiseButtonManagement",
-              "widget": "toggle",
-              "title": "Intelligent Cruise Button Management (ICBM) (Alpha)",
-              "visibility": [
-                {
-                  "type": "capability",
-                  "field": "icbm_available",
-                  "equals": true
-                }
-              ],
-              "enablement": [
-                {
-                  "type": "offroad_only"
-                },
-                {
-                  "type": "not",
-                  "condition": {
-                    "type": "capability",
-                    "field": "has_longitudinal_control",
-                    "equals": true
-                  }
-                }
-              ]
             }
           ]
         },
@@ -732,9 +779,6 @@
           "title": "Custom ACC Speed Intervals",
           "description": "",
           "enablement": [
-            {
-              "type": "offroad_only"
-            },
             {
               "type": "any",
               "conditions": [
@@ -771,9 +815,6 @@
               "title": "Enable Custom ACC Speed Intervals",
               "enablement": [
                 {
-                  "type": "offroad_only"
-                },
-                {
                   "type": "any",
                   "conditions": [
                     {
@@ -798,6 +839,19 @@
                       "type": "capability",
                       "field": "has_icbm",
                       "equals": true
+                    }
+                  ]
+                },
+                {
+                  "type": "any",
+                  "conditions": [
+                    {
+                      "type": "not_engaged"
+                    },
+                    {
+                      "type": "capability",
+                      "field": "has_icbm",
+                      "equals": false
                     }
                   ]
                 }
@@ -881,6 +935,24 @@
                       "value": 3,
                       "label": "Assist",
                       "enablement": [
+                        {
+                          "type": "any",
+                          "conditions": [
+                            {
+                              "type": "not_engaged"
+                            },
+                            {
+                              "type": "param",
+                              "key": "SpeedLimitMode",
+                              "equals": 3
+                            },
+                            {
+                              "type": "capability",
+                              "field": "has_icbm",
+                              "equals": false
+                            }
+                          ]
+                        },
                         {
                           "type": "any",
                           "conditions": [
@@ -1055,6 +1127,24 @@
                       "equals": true
                     }
                   ]
+                },
+                {
+                  "type": "any",
+                  "conditions": [
+                    {
+                      "type": "not_engaged"
+                    },
+                    {
+                      "type": "capability",
+                      "field": "has_icbm",
+                      "equals": false
+                    },
+                    {
+                      "type": "capability",
+                      "field": "has_longitudinal_control",
+                      "equals": true
+                    }
+                  ]
                 }
               ]
             },
@@ -1095,44 +1185,22 @@
                       "equals": true
                     }
                   ]
-                }
-              ]
-            },
-            {
-              "key": "SmartCruiseDecelOvershoot",
-              "widget": "toggle",
-              "title": "Deceleration Overshoot (Alpha)",
-              "description": "Temporarily set the cruise speed below the Smart Cruise target during slowdowns so the stock ACC delivers the requested deceleration, then restore it as the car slows. Only available on vehicles with a measured ACC response curve.",
-              "visibility": [
+                },
                 {
-                  "type": "all",
+                  "type": "any",
                   "conditions": [
                     {
-                      "type": "capability",
-                      "field": "has_icbm",
-                      "equals": true
+                      "type": "not_engaged"
                     },
                     {
                       "type": "capability",
-                      "field": "brand",
-                      "equals": "mazda"
-                    }
-                  ]
-                }
-              ],
-              "enablement": [
-                {
-                  "type": "all",
-                  "conditions": [
-                    {
-                      "type": "capability",
                       "field": "has_icbm",
-                      "equals": true
+                      "equals": false
                     },
                     {
                       "type": "capability",
-                      "field": "brand",
-                      "equals": "mazda"
+                      "field": "has_longitudinal_control",
+                      "equals": true
                     }
                   ]
                 }
@@ -1753,7 +1821,7 @@
           "description": "Power, boot, and unit preferences",
           "items": [
             {
-              "key": "OffroadMode",
+              "key": "OffroadModeRequested",
               "widget": "toggle",
               "title": "Force Offroad Mode"
             },
@@ -1925,38 +1993,6 @@
               "enablement": [
                 {
                   "type": "offroad_only"
-                }
-              ]
-            },
-            {
-              "key": "AlphaLongitudinalEnabled",
-              "widget": "toggle",
-              "needs_onroad_cycle": true,
-              "title": "sunnypilot Longitudinal Control (Alpha)",
-              "description": "WARNING: sunnypilot longitudinal control is in alpha for this car and will disable Automatic Emergency Braking (AEB). On this car, sunnypilot defaults to the car's built-in ACC instead of sunnypilot's longitudinal control. Enable this to switch to sunnypilot longitudinal control. Enabling Experimental mode is recommended when enabling sunnypilot longitudinal control alpha. Changing this setting will restart sunnypilot if the car is powered on.",
-              "visibility": [
-                {
-                  "type": "all",
-                  "conditions": [
-                    {
-                      "type": "capability",
-                      "field": "alpha_long_available",
-                      "equals": true
-                    },
-                    {
-                      "type": "not",
-                      "condition": {
-                        "type": "capability",
-                        "field": "has_icbm",
-                        "equals": true
-                      }
-                    }
-                  ]
-                }
-              ],
-              "enablement": [
-                {
-                  "type": "not_engaged"
                 }
               ]
             },

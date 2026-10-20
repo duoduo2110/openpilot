@@ -3,8 +3,9 @@
 Code: `openpilot/sunnypilot/selfdrive/car/cruise_arbiter.py` (session and press
 classification), `cruise_ext.py` (increment hooks and the dash reconciler),
 `card_ext.py` (call sites), `controls/lib/speed_limit/assist_mirror.py` (plannerd mirror),
-`controls/lib/speed_limit/speed_limit_assist.py` (the pcm-op-long machine, unchanged
-upstream design). Tests: `car/tests/test_cruise_arbiter*.py`, `car/tests/test_icbm_reconcile.py`,
+`controls/lib/speed_limit/speed_limit_assist_zp.py` (the pcm-op-long machine: sunnypilot's
+unchanged, with our decel publication and announcements). Tests:
+`car/tests/test_cruise_arbiter*.py`, `car/tests/test_icbm_reconcile.py`,
 `car/tests/test_icbm_sla_*.py`, `speed_limit/tests/`.
 
 ## Setpoint ownership
@@ -13,7 +14,7 @@ There are three kinds of car, and the setpoint has a different owner on each.
 
 | class | CarParams | who steps the set speed | SLA session runs in |
 |---|---|---|---|
-| pcm-op-long | `openpilotLongitudinalControl and pcmCruise` | openpilot (set speed held at the required max) | plannerd, `SpeedLimitAssist` |
+| pcm-op-long | `openpilotLongitudinalControl and pcmCruise` | openpilot (set speed held at the required max) | plannerd, `SpeedLimitAssistZP` |
 | ICBM (stock ACC buttons) | `pcmCruise and not pcmCruiseSpeed` | the stock ECU, on every wheel press | card, `CruiseArbiter`; mirrored by plannerd |
 | op-long without pcmCruise | `not pcmCruise` | openpilot's `v_cruise` | card, `CruiseArbiter`; mirrored by plannerd |
 
@@ -30,12 +31,14 @@ same frame as the button events and the setpoint writer. It reuses the upstream
 - `disabled -> ...`: after engagement (or a cluster change) a 0.5 s guard runs; then a
   cluster already at the limit activates silently, a known limit prompts, no limit
   goes `inactive`.
-- `inactive`: a limit change re-prompts and clears `_driver_dismissed`; dialing the
-  cluster onto the target latches `active` silently, but only once no press is held
-  (latching mid-hold would cap a driver dialing past the limit) and only if the driver
-  has not dismissed since the last limit change.
-- `preActive`: resolved by a press (below), by dialing onto the target, or by the 5 s
-  timeout (`inactive`).
+- `inactive`: a limit change re-prompts and clears `_driver_dismissed`; the driver
+  dialing the cluster onto the target latches `active` silently, but only once no press
+  is held (latching mid-hold would cap a driver dialing past the limit), only within
+  `DRIVER_DIAL_PERIOD` of a wheel press edge (a dash the ICBM servo walks onto the limit
+  is not a dial), and only if the driver has not dismissed since the last limit change.
+- `preActive`: resolved by a press (below) or by the 5 s timeout (`inactive`). A prompt
+  is not opened when the dash already shows the limit (`_enter_prompt` activates). The
+  dash reaching the limit resolves nothing here: on ICBM cars the servo moves it.
 - `active`: a limit change prompts when `confirm_needed_for_change` says so (below the
   confirm speed threshold every change prompts; at or above it a new target above the
   threshold auto-applies and only announces).
@@ -44,7 +47,12 @@ The published surface is `carStateSP.zoompilot.cruiseSession`: `state`, `vCap`, 
 `announceCounter`. `vCap` is the plan cap in m/s: the session target while active, the
 frozen hold while prompting, `V_CRUISE_UNSET` otherwise, never 0 (the mirror treats 0
 as a not-yet-received message). `announceCounter` is bumped on alert-worthy transitions
-and never un-bumped, so the 20 Hz mirror cannot miss one.
+and never un-bumped, so the 20 Hz mirror cannot miss one. Alert-worthy means a confirm,
+or a change in the speed the car settles at, `min(target, setpoint)` (`helpers.settle_conv`):
+a limit above a setpoint the car already holds is silent. The alert names that speed
+("Adjusting to 45 mph"). The plannerd machine (`speed_limit_assist_zp.py`, driver-only setpoints)
+uses the same helper; its prompt already caps the plan at the limit, so a confirm that changes
+nothing is silent there.
 
 ### What a prompt freezes
 
@@ -53,9 +61,13 @@ A pending confirm prompt freezes speed at three altitudes, each with its own job
 1. The session cap. Prompting out of an active session keeps that session's last cap
    so the plan `min()` cannot release the dash toward the baseline while the driver is
    deciding. Prompting from idle publishes no cap at all.
-2. The ICBM servo parks (`prompt_frozen`) with its restore patience held at zero, so a
-   decline or timeout still waits out a full quiet window.
-3. Card vetoes button emission with same-frame state (`gate_send_button`), because the
+2. The ICBM servo caps the dash where it was when the prompt opened (`prompt_ceiling`)
+   with its restore patience held at zero, so a restore cannot raise it past the limit
+   and a decline or timeout still waits out a full quiet window. Down moves go through: a
+   curve is not waiting for the driver's answer (route 269 the old full freeze parked a
+   -1.2 m/s^2 vision request 4 s before the apex; route 26b, a whole approach), and a dash
+   the servo moves confirms nothing, since only a press resolves a prompt.
+3. Card vetoes up-move emission with same-frame state (`gate_send_button`), because the
    servo's view of the session is one message hop stale and a frame could otherwise
    escape at prompt onset.
 
@@ -174,7 +186,7 @@ runs the reconciler, then publishes the session, all before `CS.vCruise` is read
 | `RECONCILE_SETTLE_TIME` | 1.0 s | trailing long-press increment lands inside 1 s on the CX-5 2022 | ICBM corpus |
 | `RECONCILE_AGREE_KPH` | 2 mph | dash-at-rest band for setpoint or session target | n/a |
 | `CONFIRM_SPEED_THRESHOLD` | 80 kph / 50 mph | upstream | n/a |
-| `get_minimum_set_speed` | 30 kph / 20 mph | stock ACC floor | n/a |
+| `minimum_set_speed_ms` | `CarParamsSP.zoompilot.minimumSetSpeed`, else 30 kph / 20 mph | stock ACC floor; Mazda MRCC 30 kph in both unit modes (dash 19 mph) | routes 26b-27f |
 | `V_CRUISE_UNSET` | 255 | upstream sentinel; one fork copy in `speed_limit/__init__.py`, pinned by `test_cruise_constants.py` | n/a |
 
 ## Tried and rejected

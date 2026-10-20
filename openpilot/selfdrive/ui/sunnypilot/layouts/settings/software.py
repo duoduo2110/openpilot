@@ -9,6 +9,7 @@ import subprocess
 from openpilot.selfdrive.ui.layouts.settings.software import SoftwareLayout
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.common.hardware import HARDWARE
+from openpilot.common.version import TICI_BRANCHES, is_tici_branch
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.lib.multilang import tr, tr_noop
 from openpilot.system.ui.widgets import DialogResult
@@ -58,8 +59,8 @@ class SoftwareLayoutSP(SoftwareLayout):
     top_level_branches = [current_git_branch, "release-mici", "release-tizi", "staging", "dev", "master"]
 
     if HARDWARE.get_device_type() == "tici":
-      top_level_branches = [current_git_branch, "develop-tici"]
-      branches = [b for b in branches if b.endswith("-tici")]
+      top_level_branches = [current_git_branch, *sorted(TICI_BRANCHES), "develop-tici"]
+      branches = [b for b in branches if is_tici_branch(b)]
 
     top_level_nodes = [TreeNode(b, {'display_name': b}) for b in top_level_branches if b in branches]
     remaining_branches = [b for b in branches if b not in top_level_branches]

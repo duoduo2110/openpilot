@@ -41,6 +41,17 @@ sections:
       enablement:
       - $ref: '#/macros/offroad'
       - $ref: '#/macros/mads_full_platforms'
+    - key: MazdaTjaButton
+      widget: toggle
+      title: Mazda TJA Button
+      description: The physical TJA button toggles Automatic Lane Centering and MRCC only controls cruise. Main Cruise and UEM
+        no longer engage or disengage lateral control. Enable only if your car has the button.
+      visibility:
+      - type: capability
+        field: brand
+        equals: mazda
+      enablement:
+      - $ref: '#/macros/offroad'
     - key: MadsSteeringMode
       widget: multiple_button
       title: Steering Mode on Brake Pedal
@@ -157,15 +168,6 @@ sections:
       - type: param
         key: LiveTorqueParamsToggle
         equals: true
-    - key: SpeedDependentTorqueToggle
-      widget: toggle
-      title: Speed-Dependent Self-Tune (Beta)
-      description: Learns separate torque parameters at different speeds. Improves steering at both low and high speeds for supported cars.
-      enablement:
-      - $ref: '#/macros/offroad'
-      - type: param
-        key: LiveTorqueParamsToggle
-        equals: true
     - key: CustomTorqueParams
       widget: toggle
       title: Enable Custom Tuning
@@ -229,10 +231,17 @@ sections:
         - type: offroad_only
     - key: TorqueControlTune
       widget: multiple_button
-      title: Torque Control Tune Version
-      description: Select the version of Torque Control Tune to use.
+      title: Torque Control Tune Version (Small Models)
+      description: Select the version of Torque Control Tune to use while the small model is driving.
       # options come from latcontrol_torque_versions.json via generate_settings_schema's
       # _inject_dynamic_options; a static list here would be dead data that drifts
+      enablement:
+      - $ref: '#/macros/offroad'
+    - key: TorqueControlTuneBig
+      widget: multiple_button
+      title: Torque Control Tune Version (Big Models)
+      description: Select the version of Torque Control Tune to use while a big model is driving.
+      # options injected like TorqueControlTune's
       enablement:
       - $ref: '#/macros/offroad'
 - id: lane_change

@@ -12,18 +12,15 @@ session cap and block synthesized button output. See docs/zoompilot/cruise-arbit
 """
 from dataclasses import dataclass
 
-import numpy as np
-
 from openpilot.cereal import custom
 from opendbc.car import structs
-from opendbc.car.interfaces import V_CRUISE_MAX
 from opendbc.car.structs import car
 from openpilot.common.constants import CV
 from openpilot.common.realtime import DT_CTRL
-from openpilot.sunnypilot.selfdrive.car.intelligent_cruise_button_management.helpers import get_minimum_set_speed
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit import ACTIVE_STATES, V_CRUISE_UNSET
 from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.common import Mode
-from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.helpers import compare_cluster_target, confirm_needed_for_change
+from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit.helpers import compare_cluster_target, confirm_needed_for_change, pcm_machine_owns_sla, \
+  settle_conv
 
 ButtonType = car.CarState.ButtonEvent.Type
 SessionState = custom.LongitudinalPlanSP.SpeedLimit.AssistState
@@ -32,6 +29,7 @@ CruiseIntent = custom.CarStateZP.CruiseSession.CruiseIntent
 # Timers use 100 Hz control frames.
 DISABLED_GUARD_PERIOD = 0.5   # s after engagement before the session may form
 PRE_ACTIVE_GUARD_PERIOD = 5.  # s a confirm prompt stays open
+DRIVER_DIAL_PERIOD = 1.  # s after a wheel press edge in which a cluster match counts as the driver's dial
 # Resolve a held prompt before cruise.py emits its first long-press repeat tick.
 LONG_PRESS_FRAMES = 50 - 1
 
@@ -54,8 +52,10 @@ class _Press:
 
 class CruiseArbiter:
   def __init__(self, CP, CP_SP):
-    # Only pcmCruise platforms with openpilot longitudinal keep the planner-side machine.
-    self.applicable = not (CP.openpilotLongitudinalControl and CP.pcmCruise)
+    # The planner-side machine keeps only the cars whose setpoint nobody but the driver can
+    # move; a reachable setpoint (openpilot's own, or the ICBM buttons) is arbitrated here.
+    self.CP = CP
+    self.applicable = self._applicable_for(icbm_active=not CP_SP.pcmCruiseSpeed)
     # ICBM platforms adopt the ECU setpoint; non-pcm openpilot longitudinal writes it here.
     self.op_owns_setpoint = not CP.pcmCruise
 
@@ -81,15 +81,28 @@ class CruiseArbiter:
     self._driver_dismissed = False
     self._cluster_conv = 0
     self._cluster_conv_prev = 0
+    self._driver_dial_timer = 0  # frames since a wheel press edge: a cluster match is the driver's
 
     # Key by raw integers because capnp enums do not hash-match cruise.py's integers.
     self._press: dict[int, _Press] = {}
     # The cruise helper uses this to close reconciliation before it runs.
     self.adopted_this_frame = False
 
+  def set_icbm_active(self, icbm_active: bool) -> None:
+    """card's ICBM latch moved (only while disengaged): on Mazda alpha long the session owner
+    moves with it between this arbiter and the plannerd machine."""
+    applicable = self._applicable_for(icbm_active)
+    if applicable != self.applicable:
+      self.applicable = applicable
+      self._set_state(SessionState.disabled)
+      self.v_cap = V_CRUISE_UNSET
+      self._press.clear()
+
+  def _applicable_for(self, icbm_active: bool) -> bool:
+    return not pcm_machine_owns_sla(self.CP, icbm_active)
+
   def read_params(self, params):
-    if not self.applicable:
-      return
+    # read even while the plannerd machine owns the session: ICBM can hand it back here
     self.enabled = params.get("SpeedLimitMode", return_default=True) == Mode.assist
     self.is_metric = params.get_bool("IsMetric")
 
@@ -136,6 +149,9 @@ class CruiseArbiter:
       self.announce_counter += 1
 
   def _enter_prompt(self):
+    if self._target_conv() == self._cluster_conv:
+      self._activate(from_prompt=False)  # the dash already shows the limit: nothing to confirm
+      return
     # Preserve an active session's cap while prompting. From idle, leave the cap unset to
     # avoid round-trip error that would incorrectly classify cruise as a limiter.
     was_session = self.state in ACTIVE_STATES or self.v_cap < V_CRUISE_UNSET
@@ -144,15 +160,20 @@ class CruiseArbiter:
     self.v_cap = float(hold)
     self.pre_active_timer = int(PRE_ACTIVE_GUARD_PERIOD / DT_CTRL)
 
+  @property
+  def _speed_moves(self) -> bool:
+    # the current target against the cap published last frame
+    return settle_conv(self._slf, self._cluster_conv, self.is_metric) != settle_conv(self.v_cap, self._cluster_conv, self.is_metric)
+
   def _activate(self, from_prompt: bool):
-    # Announce confirmations and upcoming setpoint movement, not an existing match.
-    announce = from_prompt or self._target_conv() != self._cluster_conv
-    self._set_state(SessionState.active, announce=announce)
+    # Announce confirmations and sessions that move the speed, not an existing match.
+    self._set_state(SessionState.active, announce=from_prompt or self._speed_moves)
 
   def _classify_presses(self, CS, v_cruise_kph: float) -> float:
     """Consume button edges; decide intents from the pre-frame session snapshot.
 
-    Returns v_cruise_kph, possibly raised by an upward confirm adoption."""
+    Returns v_cruise_kph, possibly raised by an upward confirm adoption. Unclipped: the cruise
+    helper applies its floor to whatever the arbiter adopts."""
     self.adopted_this_frame = False
     if self._press:
       # Release ownership lasts through the release frame.
@@ -162,14 +183,14 @@ class CruiseArbiter:
       if b.type not in PLUS_BUTTONS and b.type not in MINUS_BUTTONS:
         continue
       btn = b.type.raw
+      self._driver_dial_timer = int(DRIVER_DIAL_PERIOD / DT_CTRL)
 
       if b.pressed:
         if self.state_prev_frame in ACTIVE_STATES:
           # A press dismisses an active session. Re-anchor openpilot-owned setpoints to the
           # active cap before applying the press; ICBM platforms adopt the ECU's result.
           if self.op_owns_setpoint and self.v_cap < V_CRUISE_UNSET:
-            anchor = min(v_cruise_kph, self.target_kph)
-            v_cruise_kph = float(np.clip(round(anchor, 1), get_minimum_set_speed(self.is_metric), V_CRUISE_MAX))
+            v_cruise_kph = min(v_cruise_kph, self.target_kph)
             self.adopted_this_frame = True
             self._press[btn] = _Press(_PRESS_NORMAL)
           else:
@@ -216,7 +237,7 @@ class CruiseArbiter:
       press.resolved = True
       self.last_intent = CruiseIntent.confirm
       if is_plus and self.target_kph > v_cruise_kph:
-        v_cruise_kph = float(np.clip(round(self.target_kph, 1), get_minimum_set_speed(self.is_metric), V_CRUISE_MAX))
+        v_cruise_kph = self.target_kph
         self.adopted_this_frame = True
       self._activate(from_prompt=True)
     else:
@@ -253,6 +274,7 @@ class CruiseArbiter:
 
     self.long_engaged_timer = max(0, self.long_engaged_timer - 1)
     self.pre_active_timer = max(0, self.pre_active_timer - 1)
+    self._driver_dial_timer = max(0, self._driver_dial_timer - 1)
 
     if self.state != SessionState.disabled:
       if not long_enabled or not self.enabled:
@@ -262,14 +284,15 @@ class CruiseArbiter:
       elif self.state in ACTIVE_STATES:
         if self._limit_changed and confirm_needed_for_change(self._cluster_conv, self._target_conv(), self.is_metric):
           self._enter_prompt()
-        elif self._limit_changed and self._target_conv() != self._cluster_conv:
-          # Auto-apply target changes that do not require confirmation.
+        elif self._limit_changed and self._speed_moves:
+          # Auto-apply target changes that do not require confirmation; a limit above the
+          # setpoint the car already holds changes nothing to announce.
           self.announce_counter += 1
 
       elif self.state == SessionState.preActive:
-        if self._target_conv() == self._cluster_conv:
-          self._activate(from_prompt=True)  # dialing to the target confirms it
-        elif self.pre_active_timer <= 0:
+        # a press resolves the prompt (above); the ICBM servo may walk the dash through the
+        # limit for a curve meanwhile, which confirms nothing
+        if self.pre_active_timer <= 0:
           self._set_state(SessionState.inactive)
 
       elif self.state == SessionState.inactive:
@@ -277,8 +300,9 @@ class CruiseArbiter:
           self._driver_dismissed = False
           self._enter_prompt()
         elif not self._driver_dismissed and self._has_limit and self._target_conv() == self._cluster_conv \
-             and not self._press:
-          # Wait for release so a driver can continue through the target.
+             and not self._press and self._driver_dial_timer > 0:
+          # The driver dialed onto the limit: wait for release so they can continue through
+          # it. A dash the servo walked onto it is not a dial.
           self._activate(from_prompt=False)
 
     else:
@@ -313,6 +337,10 @@ class CruiseArbiter:
     session.announceCounter = self.announce_counter
 
   def gate_send_button(self, CC_SP) -> None:
-    """Block synthesized buttons at prompt onset before CI.apply."""
-    if self.applicable and self.prompting:
-      CC_SP.intelligentCruiseButtonManagement.sendButton = structs.IntelligentCruiseButtonManagement.SendButtonState.none
+    """Block synthesized up moves at prompt onset before CI.apply: the servo's view of the
+    session is a hop stale, and a dash raised past the limit would be adopted on an upward
+    confirm. Down moves (a curve) go through; nothing confirms on a dash the servo moved."""
+    Send = structs.IntelligentCruiseButtonManagement.SendButtonState
+    icbm = CC_SP.intelligentCruiseButtonManagement
+    if self.applicable and self.prompting and icbm.sendButton == Send.increase:
+      icbm.sendButton = Send.none

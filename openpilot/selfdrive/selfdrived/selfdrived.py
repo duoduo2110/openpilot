@@ -33,6 +33,7 @@ from openpilot.sunnypilot.selfdrive.car.cruise_helpers import CruiseHelper
 from openpilot.sunnypilot.selfdrive.car.intelligent_cruise_button_management.controller import IntelligentCruiseButtonManagement
 from openpilot.sunnypilot.selfdrive.selfdrived.button_state_tracker import ButtonStateTracker
 from openpilot.sunnypilot.selfdrive.selfdrived.events import EventsSP
+from openpilot.sunnypilot.selfdrive.selfdrived.model_events import ModelEventsSP
 
 REPLAY = "REPLAY" in os.environ
 SIMULATION = "SIMULATION" in os.environ
@@ -98,7 +99,7 @@ class SelfdriveD(CruiseHelper):
     # TODO: de-couple selfdrived with card/conflate on carState without introducing controls mismatches
     self.car_state_sock = messaging.sub_sock('carState', timeout=20)
 
-    ignore = self.sensor_packets + self.gps_packets + ['alertDebug', 'lateralManeuverPlan'] + ['modelDataV2SP', 'longitudinalPlanSP']
+    ignore = self.sensor_packets + self.gps_packets + ['alertDebug', 'lateralManeuverPlan'] + ['modelDataV2SP', 'longitudinalPlanSP', 'carStateSP']
     if SIMULATION:
       ignore += ['cabinCameraState', 'managerState']
     if REPLAY:
@@ -108,7 +109,7 @@ class SelfdriveD(CruiseHelper):
                                    'carOutput', 'driverMonitoringState', 'longitudinalPlan', 'deviceMotion', 'lateralDelay',
                                    'managerState', 'vehicleParameters', 'radarState', 'lateralTorqueParameters',
                                    'controlsState', 'carControl', 'driverAssistance', 'alertDebug', 'userBookmark',
-                                   'lateralManeuverPlan', 'modelDataV2SP', 'longitudinalPlanSP'] + \
+                                   'lateralManeuverPlan', 'modelDataV2SP', 'longitudinalPlanSP', 'carStateSP'] + \
                                    self.camera_packets + self.sensor_packets + self.gps_packets,
                                   ignore_alive=ignore, ignore_avg_freq=ignore,
                                   ignore_valid=ignore, frequency=int(1/DT_CTRL))
@@ -161,7 +162,8 @@ class SelfdriveD(CruiseHelper):
     if HARDWARE.get_device_type() == 'tici' and nvme_expected:
       self.ignored_processes = {'loggerd', }
 
-    self.ignored_processes.update({'mapd'})
+    self.ignored_processes.update({'mapd', *ModelEventsSP.OPTIONAL_PROCESSES})
+    self.model_events = ModelEventsSP()
 
     # Determine startup event
     is_remote = build_metadata.openpilot.comma_remote or build_metadata.openpilot.sunnypilot_remote
@@ -236,9 +238,13 @@ class SelfdriveD(CruiseHelper):
       self.events.add(self.startup_event)
       self.startup_event = None
 
+    self.model_events.update(self.sm, self.enabled or self.mads.enabled, self.initialized, self.big_model_loading, self.events, self.events_sp)
+
     # Don't add any more events if not initialized
     if not self.initialized:
       self.events.add(EventName.selfdriveInitializing)
+      if CS.canValid:
+        self.car_events_sp.update_stock_ecu(CS, self.sm['carStateSP'], self.events_sp)
       return
 
     # Check for user bookmark press
@@ -285,7 +291,8 @@ class SelfdriveD(CruiseHelper):
       car_events = self.car_events.update(CS, self.CS_prev, self.sm['carControl']).to_msg()
       self.events.add_from_msg(car_events)
 
-      car_events_sp = self.car_events_sp.update(CS, self.events).to_msg()
+      car_events_sp = self.car_events_sp.update(CS, self.events, self.sm['carStateSP'], self.mads.enabled_toggle,
+                                               self.mads.enabled).to_msg()
       self.events_sp.add_from_msg(car_events_sp)
 
       if self.CP.notCar:
@@ -439,7 +446,7 @@ class SelfdriveD(CruiseHelper):
     has_disable_events = self.events.contains(ET.NO_ENTRY) and (self.events.contains(ET.SOFT_DISABLE) or self.events.contains(ET.IMMEDIATE_DISABLE))
     no_system_errors = (not has_disable_events) or (len(self.events) == num_events)
     warmup_sec = 5.
-    big_model_settling = self.big_model_loading or time.monotonic() < self.big_model_ready_t + warmup_sec
+    big_model_settling = self.big_model_loading or time.monotonic() < self.big_model_ready_t + warmup_sec or self.model_events.settling
     if not self.sm.all_checks() and no_system_errors and not big_model_settling:  # the load holds modelV2 and friends back on purpose
       if not self.sm.all_alive():
         self.events.add(EventName.commIssue)
@@ -460,14 +467,12 @@ class SelfdriveD(CruiseHelper):
       self.logged_comm_issue = None
 
     if not self.CP.notCar and not big_model_settling:  # localization has nothing to work with during the load
-      # a message never received is capnp defaults, not a localizer verdict: locationd and paramsd
-      # publish nothing while modeld is down, and processNotRunning already says so
+      # the defaults of a message that was never received are not a localizer failure
       if self.sm.seen['deviceMotion'] and not self.sm['deviceMotion'].posenetOK:
         self.events.add(EventName.posenetInvalid)
       if self.sm.seen['deviceMotion'] and not self.sm['deviceMotion'].inputsOK:
         self.events.add(EventName.locationdTemporaryError)
-      if (self.sm.seen['vehicleParameters'] and not self.sm['vehicleParameters'].valid and
-          cal_status == log.ExtrinsicsCalibration.Status.calibrated and
+      if (self.sm.seen['vehicleParameters'] and not self.sm['vehicleParameters'].valid and cal_status == log.ExtrinsicsCalibration.Status.calibrated and
           not TESTING_CLOSET and (not SIMULATION or REPLAY)):
         self.events.add(EventName.paramsdTemporaryError)
 
@@ -638,6 +643,8 @@ class SelfdriveD(CruiseHelper):
     mads.enabled = self.mads.enabled
     mads.active = self.mads.active
     mads.available = self.mads.enabled_toggle
+    ss_sp.zoompilot.madsLateralHeld = self.mads.lateral_held
+    ss_sp.zoompilot.icbmHold = self.icbm.fast_active
 
     icbm = ss_sp.intelligentCruiseButtonManagement
     icbm.state = self.icbm.state
@@ -653,6 +660,7 @@ class SelfdriveD(CruiseHelper):
       ce_send_sp = messaging.new_message('onroadEventsSP')
       ce_send_sp.valid = True
       ce_send_sp.onroadEventsSP.events = self.events_sp.to_msg()
+      ce_send_sp.onroadEventsSP.zoompilot.events = self.events_sp.zp.to_msg()
       self.pm.send('onroadEventsSP', ce_send_sp)
     self.events_sp_prev = self.events_sp.names.copy()
 

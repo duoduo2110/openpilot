@@ -13,7 +13,8 @@ from openpilot.common.constants import CV
 from openpilot.common.realtime import DT_CTRL
 from openpilot.sunnypilot.selfdrive.car.intelligent_cruise_button_management.controller import (
   DRIVER_PRESS_GRACE_T, REACT_DEADBAND, RESTORE_QUIET_TIME)
-from openpilot.sunnypilot.selfdrive.car.tests.icbm_servo_harness import make_icbm, run_frames
+from openpilot.sunnypilot.selfdrive.car.tests.icbm_servo_harness import make_icbm, run_frames, send_of, INCREASE_HOLD, \
+  DECREASE_HOLD
 
 ButtonEvent = car.CarState.ButtonEvent
 ButtonType = car.CarState.ButtonEvent.Type
@@ -123,13 +124,13 @@ class TestServo:
 
     self.run_frames(45, 60, n=60, icbm=icbm)
     assert icbm.state == State.decreasing
-    assert icbm.cruise_button == SendButtonState.decreaseHold
+    assert send_of(icbm) == DECREASE_HOLD
 
     # dash walks down 1 mph at a time; the stream holds until the remainder is small
     self.run_frames(45, 48, n=5, icbm=icbm)
-    assert icbm.cruise_button == SendButtonState.decreaseHold
+    assert send_of(icbm) == DECREASE_HOLD
     self.run_frames(45, 47, n=5, icbm=icbm)
-    assert icbm.cruise_button == SendButtonState.decrease
+    assert send_of(icbm) == SendButtonState.decrease
 
     self.run_frames(45, 45, n=5, icbm=icbm)
     assert icbm.state == State.holding
@@ -141,17 +142,17 @@ class TestServo:
     self.run_frames(60, 60, n=60, icbm=icbm)
 
     self.run_frames(45, 60, n=60, icbm=icbm)
-    assert icbm.cruise_button == SendButtonState.decreaseHold
+    assert send_of(icbm) == DECREASE_HOLD
 
     # dash frozen past the stall window -> fault and tap from here on
     self.run_frames(45, 60, n=160, icbm=icbm)
     assert icbm.fast_faulted
-    assert icbm.cruise_button == SendButtonState.decrease
+    assert send_of(icbm) == SendButtonState.decrease
 
     # a later large move stays taps-only
     self.run_frames(60, 60, n=200, icbm=icbm)
     self.run_frames(40, 60, n=60, icbm=icbm)
-    assert icbm.cruise_button == SendButtonState.decrease
+    assert send_of(icbm) == SendButtonState.decrease
 
   def test_metric_uses_the_stream_too(self):
     """The stream carries no grid assumption (it is just presses), so metric users get
@@ -161,7 +162,7 @@ class TestServo:
 
     self.run_frames(45, 60, n=60, icbm=icbm, is_metric=True)
     assert icbm.state == State.decreasing
-    assert icbm.cruise_button == SendButtonState.decreaseHold
+    assert send_of(icbm) == DECREASE_HOLD
 
 
 
@@ -180,16 +181,16 @@ class TestRestoreResponsiveness:
     """After a limiter release with a built-up overshoot gap, the restore must start about
     a quiet-window after the flip, not after the residual finishes bleeding off."""
     icbm = self.make_icbm(brand="mazda")
-    self.run_frames(40, 40, n=60, icbm=icbm, v_ego_mph=40., overshoot=True)
+    self.run_frames(40, 40, n=60, icbm=icbm, v_ego_mph=40.)
     # curve: deep decel demand builds the full gap and walks the dash down
-    self.run_frames(30, 31, n=100, icbm=icbm, v_ego_mph=39., a_target=-1.2, overshoot=True)
+    self.run_frames(30, 31, n=100, icbm=icbm, v_ego_mph=39., a_target=-1.2)
     assert icbm.overshoot_mph > 5.
 
     # road straightens: source back to cruise, target back at the driver's 40
     first_up = None
     for i in range(400):
-      sends = self.run_frames(40, 31, n=1, icbm=icbm, source='cruise', v_ego_mph=33., overshoot=True)
-      if sends[0] == SendButtonState.increase or sends[0] == SendButtonState.increaseHold:
+      sends = self.run_frames(40, 31, n=1, icbm=icbm, source='cruise', v_ego_mph=33.)
+      if sends[0] == SendButtonState.increase or sends[0] == INCREASE_HOLD:
         first_up = i * DT_CTRL
         break
     assert first_up is not None, "restore never started"
@@ -204,6 +205,19 @@ class TestRestoreResponsiveness:
     assert all(s == SendButtonState.none for s in sends)
     assert icbm.state == State.holding
 
+  def test_lookahead_dip_caps_restore_at_its_level(self):
+    """Route 128 t=9880: the curve released with the dash at 20, a 41 mph dip on the horizon
+    froze it there for 6.8 s and the car braked on to 19.7. A dip above the dash is a ceiling
+    for the restore, not a stop."""
+    icbm = self.make_icbm(brand="mazda")
+    self.run_frames(50, 50, n=60, icbm=icbm)
+    dash = 20
+    for _ in range(600):
+      sends = self.run_frames(50, dash, n=1, icbm=icbm, source='cruise', v_ahead_min_mph=41.)
+      if sends[0] in (SendButtonState.increase, INCREASE_HOLD):
+        dash += 1
+    assert 39 <= dash <= 41, dash
+
   def test_lookahead_clear_skips_quiet_window(self):
     """With the horizon clear the profile is the churn oracle; stillness is redundant and
     the restore fires on the react timer alone."""
@@ -212,7 +226,7 @@ class TestRestoreResponsiveness:
     first_up = None
     for i in range(200):
       sends = self.run_frames(40, 30, n=1, icbm=icbm, source='cruise', v_ahead_min_mph=255. / CV.MPH_TO_MS)
-      if sends[0] in (SendButtonState.increase, SendButtonState.increaseHold):
+      if sends[0] in (SendButtonState.increase, INCREASE_HOLD):
         first_up = i * DT_CTRL
         break
     assert first_up is not None
@@ -245,8 +259,22 @@ class TestRestoreResponsiveness:
       sends = self.run_frames(30, 45, n=1, icbm=icbm, a_target=-1.0)
       (quiet if i * DT_CTRL < DRIVER_PRESS_GRACE_T - 0.1 else resumed).extend(sends)
     assert all(s == SendButtonState.none for s in quiet), "servo fought the driver inside the grace window"
-    assert any(s in (SendButtonState.decrease, SendButtonState.decreaseHold) for s in resumed), \
+    assert any(s in (SendButtonState.decrease, DECREASE_HOLD) for s in resumed), \
       "servo never resumed after the grace window"
+
+  def test_a_lower_target_after_the_press_is_not_parked(self):
+    """The grace parks down moves to the target the driver overrode, not to a lower one that
+    appears afterwards (route 260 t=1059: cruise set to 40, then a 34 mph curve 1.5 s later,
+    and the car accelerated into it for the whole window)."""
+    icbm = self.make_icbm(brand="mazda")
+    self.run_frames(40, 40, n=60, icbm=icbm, source='cruise', v_ego_mph=35.)
+    press = [ButtonEvent(type=ButtonType.accelCruise, pressed=True)]
+    release = [ButtonEvent(type=ButtonType.accelCruise, pressed=False)]
+    self.run_frames(40, 40, n=5, icbm=icbm, source='cruise', v_ego_mph=35., button_events=press)
+    self.run_frames(40, 40, n=1, icbm=icbm, source='cruise', v_ego_mph=35., button_events=release)
+    sends = self.run_frames(28, 40, n=100, icbm=icbm, v_ego_mph=36., a_target=-0.6)
+    assert any(s in (SendButtonState.decrease, DECREASE_HOLD) for s in sends), \
+      "servo parked a fresh curve limiter behind the driver's earlier SET+"
 
   def test_driver_down_press_ends_grace(self):
     """A SET- press is aligned intent and cancels the SET+ grace immediately."""
@@ -259,7 +287,7 @@ class TestRestoreResponsiveness:
     assert icbm.down_grace_timer == 0
 
     sends = self.run_frames(30, 45, n=150, icbm=icbm)
-    assert any(s in (SendButtonState.decrease, SendButtonState.decreaseHold) for s in sends)
+    assert any(s in (SendButtonState.decrease, DECREASE_HOLD) for s in sends)
 
   def test_driver_down_press_grace_blocks_up(self):
     """The mirror: after a genuine SET- press a refused re-anchor must not restore the
@@ -276,5 +304,30 @@ class TestRestoreResponsiveness:
       sends = self.run_frames(40, 35, n=1, icbm=icbm, source='cruise', v_ahead_min_mph=200.)
       (quiet if i * DT_CTRL < DRIVER_PRESS_GRACE_T - 0.1 else resumed).extend(sends)
     assert all(s == SendButtonState.none for s in quiet), "servo restored over the driver's SET-"
-    assert any(s in (SendButtonState.increase, SendButtonState.increaseHold) for s in resumed), \
+    assert any(s in (SendButtonState.increase, INCREASE_HOLD) for s in resumed), \
       "restore never resumed after the grace window"
+
+
+class TestOpenpilotLongitudinal:
+  """Under openpilot longitudinal the planner executes curve targets itself: the servo keeps
+  the dash on the arbiter's setpoint through a curve, still follows a speed limit session,
+  and never builds a decel-overshoot gap (that drives a stock ACC, not openpilot)."""
+
+  def test_curve_target_does_not_move_the_dash(self):
+    icbm = make_icbm(op_long=True)
+    run_frames(icbm, 45, 45, n=60, v_cruise_mph=45)
+    sends = run_frames(icbm, 30, 45, n=200, source='sccVision', v_cruise_mph=45)
+    assert all(s == SendButtonState.none for s in sends)
+    assert icbm.state == State.holding
+
+  def test_speed_limit_session_still_walks_the_dash(self):
+    icbm = make_icbm(op_long=True)
+    run_frames(icbm, 45, 45, n=60, v_cruise_mph=45)
+    sends = run_frames(icbm, 35, 45, n=200, source='speedLimitAssist', v_cruise_mph=35)
+    assert any(s == SendButtonState.decrease for s in sends)
+
+  def test_no_decel_overshoot(self):
+    icbm = make_icbm(brand='mazda', op_long=True)
+    run_frames(icbm, 45, 45, n=60, v_cruise_mph=45)
+    run_frames(icbm, 35, 45, n=100, source='speedLimitAssist', v_cruise_mph=35, v_ego_mph=45, a_target=-0.5)
+    assert icbm.overshoot_mph == 0.

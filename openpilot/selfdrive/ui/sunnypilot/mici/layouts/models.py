@@ -4,20 +4,31 @@ Copyright (c) 2021-, Haibin Wen, sunnypilot, and a number of other contributors.
 This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
+import time
+
 import pyray as rl
 
 from openpilot.cereal import custom
-from openpilot.selfdrive.ui.mici.widgets.dialog import BigDialog
+from openpilot.selfdrive.ui.mici.widgets.dialog import BigConfirmationDialog, BigDialog
 from openpilot.sunnypilot.models.helpers import ACTIVE_BUNDLE_KEYS, get_selected_bundle
 from openpilot.selfdrive.ui.mici.widgets.button import BigButton
 from openpilot.selfdrive.ui.ui_state import ui_state, device
+from openpilot.selfdrive.ui.sunnypilot.accelerator_link import big_model_note, big_model_progress, link_toggle_meaningful, standin_model
 from openpilot.selfdrive.ui.sunnypilot.model_info import (active_source, big_model_state, bundles_for_source, carrying_model,
-                                                           default_model_name, model_info, queued_name)
+                                                           default_model_name, model_cache_size_mb, model_info, queued_name,
+                                                           refresh_in_progress, refresh_model_list)
+from openpilot.selfdrive.ui.sunnypilot.mici.widgets.button import BigMultiParamToggleSP
+from openpilot.sunnypilot.jetlink_adapter import KEYS, MODES
 from openpilot.system.ui.lib.application import FontWeight, gui_app
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.widgets import Widget
 from openpilot.system.ui.widgets.label import UnifiedLabel
 from openpilot.system.ui.widgets.scroller import NavScroller
+
+
+# the value line: the mode
+LINK_MODE_LABELS = {"off": "off", "usb": "usb", "ios": "iOS"}
+
 
 def _model_info() -> tuple[str, str, str]:
   """(active model, info header, info text) for the panel. Runner-matched: the
@@ -30,6 +41,18 @@ def _model_info() -> tuple[str, str, str]:
     big = get_selected_bundle(ui_state.params, "chestnut")
     carry_display = big.displayName if big else default_model_name("chestnut")
   active_text = (carry_display or active_name).lower()
+  provisioning = big_model_progress()
+  if provisioning is not None:
+    stage, frac, msg = provisioning
+    if stage == 'failed':
+      return active_text, tr("big model"), msg or tr("unavailable")
+    # "waiting for jetlink" says more than "connect 0%"; no percentage for a stage
+    # with nothing to measure
+    detail = msg or tr(stage)
+    return active_text, tr("big model"), f"{detail} {frac * 100:.0f}%" if frac > 0 else detail
+  if standin := standin_model():
+    # the last model the Jetson built drives until the pick is downloaded and built
+    return active_text, tr("big model"), tr("{} for now").format(standin.lower())
   if state == 'failed':
     return active_text, tr("big model"), tr("unavailable")
   if state == 'loading':
@@ -78,13 +101,34 @@ class ModelsLayoutMici(NavScroller):
     self._was_downloading = False
     self._selection_source: str | None = None
 
-    self.select_model_btn = BigButton(tr("select model"))
+    self.select_model_btn = BigButton(tr("select model"), description=tr("Choose the driving model. Small models run on the comma.\n" +
+                                                                         "Big models run on a Chestnut or over Jetlink."))
     self.select_model_btn.set_click_callback(self._show_folders)
 
-    self.cancel_download_btn = BigButton(tr("cancel download"))
+    self.refresh_btn = BigButton(tr("refresh models"), description=tr("Fetches the latest list of driving models."))
+    self.refresh_btn.set_click_callback(self._refresh_models)
+    self._refresh_start: float | None = None
+
+    self.cancel_download_btn = BigButton(tr("cancel download"), description=tr("Stops the model download in progress."))
     self.cancel_download_btn.set_click_callback(lambda: ui_state.params.remove("ModelManager_DownloadRef"))
 
-    self.main_items = [self.current_model_info, self.select_model_btn, self.cancel_download_btn]
+    # the pills follow the param; locked onroad like the model buttons beside it: jetlink switches the link only parked
+    self.link_toggle = BigMultiParamToggleSP(tr("jetlink"), KEYS.link, [tr(LINK_MODE_LABELS[m]) for m in MODES],
+                                             values=list(range(len(MODES))),
+                                             description=tr("Runs big models on a computer or phone plugged into the comma.\n" +
+                                                            "USB for a Mac, Jetson, Linux PC or Android. iOS for an iPhone or iPad.\n" +
+                                                            "Turns off ADB. The small model drives until the big model is ready."))
+    self.link_toggle.set_enabled(lambda: ui_state.is_offroad())
+    self.link_toggle.set_visible(link_toggle_meaningful())
+
+    self.clear_cache_btn = BigButton(tr("clear cache"), value=f"{model_cache_size_mb():.1f} MB",
+                                     description=tr("Deletes downloaded models to free up space.\n" +
+                                                    "Your selected small and big models are kept."))
+    self.clear_cache_btn.set_click_callback(self._confirm_clear_cache)
+    self._cache_size_time = 0.0
+
+    self.main_items = [self.current_model_info, self.select_model_btn, self.cancel_download_btn, self.link_toggle, self.refresh_btn,
+                       self.clear_cache_btn]
     self._scroller.add_widgets(self.main_items)
 
   @property
@@ -162,6 +206,15 @@ class ModelsLayoutMici(NavScroller):
     ui_state.params.remove(ACTIVE_BUNDLE_KEYS[source])
     self._pop_to_main()
 
+  def _confirm_clear_cache(self):
+    icon = gui_app.texture("icons_mici/settings/network/new/trash.png", 54, 64)
+    gui_app.push_widget(BigConfirmationDialog(f"{tr('slide to')}\n{tr('clear cache')}", icon,
+                                              lambda: ui_state.params.put_bool("ModelManager_ClearCache", True), red=True))
+
+  def _refresh_models(self):
+    refresh_model_list()
+    self._refresh_start = time.monotonic()
+
   def _select_folder(self, folder_name):
     source = self._selection_source
     if source is None:  # folders are only reachable after picking a hardware
@@ -174,7 +227,8 @@ class ModelsLayoutMici(NavScroller):
 
     btns = []
     for bundle in bundles:
-      btn = BigButton(bundle.displayName.lower())
+      note = big_model_note(bundle.ref) if source == "chestnut" else None
+      btn = BigButton(bundle.displayName.lower(), value=note.lower() if note else "")
       btn.set_click_callback(lambda b=bundle: self._select_model(b))
       btns.append(btn)
     self._push_selection_view(btns)
@@ -198,12 +252,30 @@ class ModelsLayoutMici(NavScroller):
     should_update = self._download_frame % (gui_app.target_fps / 2) == 0
     if should_update:
       self._download_progress = self._download_progress + "." if len(self._download_progress) < 3 else ""
+      # present() and unavailable_reason() read sysfs, so they ride this half-second tick
+      self.link_toggle.refresh()
+      self.link_toggle.set_visible(link_toggle_meaningful())
 
     is_downloading = (manager.selectedBundle
                       and manager.selectedBundle.status == custom.ModelManagerSP.DownloadStatus.downloading)
     if self._was_downloading and not is_downloading:
       device.set_override_interactive_timeout(None)
     self._was_downloading = is_downloading
+
+    # manager is offroad-only, so an onroad clear would never be serviced
+    clearing = ui_state.params.get_bool("ModelManager_ClearCache")
+    self.clear_cache_btn.set_enabled(ui_state.is_offroad() and not is_downloading and not clearing)
+    if clearing:
+      self.clear_cache_btn.set_value(tr("clearing..."))
+      self._cache_size_time = 0.0  # refresh the size as soon as clearing finishes
+    elif (now := time.monotonic()) - self._cache_size_time > 0.5:
+      self._cache_size_time = now
+      self.clear_cache_btn.set_value(f"{model_cache_size_mb():.1f} MB")
+
+    # manager is offroad-only, so a refresh queued onroad would never be serviced
+    refreshing = refresh_in_progress(self._refresh_start)
+    self.refresh_btn.set_enabled(ui_state.is_offroad() and not is_downloading and not refreshing)
+    self.refresh_btn.set_value(tr("fetching...") if refreshing else "")
 
     self.current_model_info.current_model_header.set_text(tr("active model"))
     active_text, info_header, info_text = _model_info()

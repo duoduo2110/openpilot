@@ -4,6 +4,8 @@ A Mazda-optimized fork of [sunnypilot](https://github.com/sunnypilot/sunnypilot)
 
 This is what I run on my own 2022 CX-5 every day. There's a nicer tour of all of this at [zoompilot.ai](https://zoompilot.ai).
 
+<a href="https://zoompilot.ai/screens/mici-demo.mp4"><img src="https://zoompilot.ai/screens/mici-demo.webp" width="100%" alt="zoompilot on the device: the Mazda defaults already on (the Firehose model, torque control, the v2.0 steering tune, speed-dependent self-tune), then turning on ICBM and Smart Cruise"></a>
+
 ## Install
 
 When your comma device asks for a custom software URL during setup, type:
@@ -12,7 +14,7 @@ When your comma device asks for a custom software URL during setup, type:
 zoompilot/main
 ```
 
-`main` carries the releases, built ahead of time so the device doesn't have to compile on install. `develop` is where the day to day work lands if you want it earlier. Devices installed from my old personal fork move themselves to `main` on their next start.
+`main` carries the releases, built ahead of time so the device doesn't have to compile on install. `develop` is where the day to day work lands if you want it earlier.
 
 **This is experimental software.** You drive the car, you follow the law where you live, and you carry the risk. It ships with no warranty and no liability for any damage or injury.
 
@@ -46,8 +48,8 @@ The CX-5 keeps its factory cruise; zoompilot can set the speed for you by 'press
 
 - **Fixed ICBM.** sunnypilot's Intelligent-Cruise-Button-Management and Smart-Cruise are broken for Mazda. I rebuilt how zoompilot works your wheel buttons. The speed you dial is remembered exactly: curves and speed limits can borrow it for a while, but you get your number back, never one or two under it. If the car misses a press, it quietly catches up.
 - **Speed-limit assist that sticks.** When the car sees a new limit, the screen asks once. Tap minus to accept a lower one and zoompilot dials the car down for you. It used to forget your answer a moment later; now it holds until the road changes. Press plus while it has you at a limit and it steps aside until the next sign. Your buttons always win.
-- **Smart Cruise.** A sunnypilot feature that reduces your set speed before a curve in the road and sets it back after. You can use vision or downloaded maps to determine when to slow down. Enable it in the cruise settings menu.
-- **Deceleration overshoot (alpha).** The Mazda does not instantly react to adjustments in set cruise speed. This option reduces the set cruise speed MORE than what the model calls for, to get the deceleration the curve needs.
+- **Slow for Curves.** sunnypilot's Smart Cruise: it reduces your set speed before a curve in the road and sets it back after. You can use vision or downloaded maps to determine when to slow down. Enable it in the cruise settings menu.
+- **Deceleration overshoot.** The Mazda's cruise control brakes according to how far the set speed sits below the car's speed, so for a curve zoompilot holds the set speed the measured gap below your actual speed that gives the braking the curve needs, then lands it on the curve's speed. Always on for Mazda; no setting.
 
 ## additional Mazdas covered
 
@@ -60,10 +62,10 @@ Not just the CX-5.
 
 1. Factory-reset the device before you install. A clean device carries no stale settings from a previous fork.
 2. Pick a driving model. I run Firehose. DTRv6 is a favourite and MacroStiff is great at high speed.
-3. Under steering: turn on torque control, then self-tune, then speed-dependent self-tune.
+3. Under steering: turn on torque control, then self-tune. Speed-dependent tuning comes with self-tune.
 4. Leave custom tune and manual real-time off. Let the car teach the software. That's the point.
 
-Want to slow down for curves? Under cruise, turn on intelligent cruise button management, then pick smart cruise vision, maps, or both. Maps need a region downloaded through SunnyLink first.
+Want to slow down for curves? Under cruise, turn on slow for curves: vision, map, or both. Maps need a region downloaded through SunnyLink first.
 
 You can manage almost all of it from the device screen. No laptop, no cloud editor. SunnyLink still works if you like it.
 

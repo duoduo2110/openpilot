@@ -9,13 +9,15 @@ import numpy as np
 from openpilot.cereal import custom
 from opendbc.car.structs import car
 from opendbc.car import structs
-from opendbc.car.interfaces import V_CRUISE_MAX
 from openpilot.common.constants import CV
 from openpilot.common.params import Params
 from openpilot.common.realtime import DT_CTRL
+from openpilot.common.swaglog import cloudlog
 from openpilot.sunnypilot.selfdrive.car.cruise_arbiter import CruiseArbiter
-from openpilot.sunnypilot.selfdrive.car.intelligent_cruise_button_management.helpers import get_minimum_set_speed
-from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit import ACTIVE_STATES as SESSION_ACTIVE_STATES, V_CRUISE_UNSET
+from openpilot.sunnypilot.selfdrive.car.intelligent_cruise_button_management.demand import icbm_demanded
+from openpilot.sunnypilot.selfdrive.car.intelligent_cruise_button_management.helpers import minimum_set_speed_ms
+from openpilot.sunnypilot.selfdrive.car.intelligent_cruise_button_management.icbm_latch import IcbmLatch
+from openpilot.sunnypilot.selfdrive.controls.lib.speed_limit import ACTIVE_STATES as SESSION_ACTIVE_STATES
 
 ButtonType = car.CarState.ButtonEvent.Type
 LongitudinalPlanSource = custom.LongitudinalPlanSP.LongitudinalPlanSource
@@ -26,7 +28,9 @@ CRUISE_BUTTON_TIMER = {ButtonType.decelCruise: 0, ButtonType.accelCruise: 0,
                        ButtonType.setCruise: 0, ButtonType.resumeCruise: 0,
                        ButtonType.cancel: 0, ButtonType.mainCruise: 0}
 
-V_CRUISE_MIN = 8  # kph; selfdrive.car.cruise's V_CRUISE_MIN is not importable from here (cycle)
+V_CRUISE_MIN = 8
+V_CRUISE_MAX = 145
+V_CRUISE_UNSET = 255
 
 # Setpoint reconciliation for non-pcmCruiseSpeed (ICBM) cars: the stock ECU keeps the real
 # set speed and steps it on wheel presses while openpilot integrates the same presses, so
@@ -56,6 +60,8 @@ class VCruiseHelperSP:
   def __init__(self, CP: structs.CarParams, CP_SP: structs.CarParamsSP) -> None:
     self.CP = CP
     self.CP_SP = CP_SP
+    self.icbm_latch = IcbmLatch(CP, CP_SP)
+    self.is_metric = False
     self.v_cruise_kph = V_CRUISE_UNSET
     self.v_cruise_cluster_kph = V_CRUISE_UNSET
     self.params = Params()
@@ -81,12 +87,24 @@ class VCruiseHelperSP:
     self.cruise_arbiter = CruiseArbiter(CP, CP_SP)
     self.cruise_arbiter.read_params(self.params)
 
+  @property
+  def pcm_cruise_speed(self) -> bool:
+    """CarParamsSP.pcmCruiseSpeed as it stands this frame: False while ICBM drives the set speed."""
+    return not self.icbm_latch.active
+
+  @property
+  def op_owns_set_speed(self) -> bool:
+    """openpilot computes the set speed. Under ICBM the stock ECU steps it on SET- itself, so the
+    gas-override clip to vEgo would put v_cruise above the dash and ICBM would chase that."""
+    return not self.CP.pcmCruise or self.pcm_cruise_speed
+
   def read_custom_set_speed_params(self) -> None:
     self.custom_acc_enabled = self.params.get_bool("CustomAccIncrementsEnabled")
     self.short_increment = self.params.get("CustomAccShortPressIncrement", return_default=True)
     self.long_increment = self.params.get("CustomAccLongPressIncrement", return_default=True)
     # rides card's params thread, keeping param reads off the 100 Hz path
     self.cruise_arbiter.read_params(self.params)
+    self.icbm_latch.demanded = icbm_demanded(self.CP, self.params)
 
   def update_v_cruise_delta(self, long_press: bool, v_cruise_delta: float) -> tuple[bool, float]:
     if not self.custom_acc_enabled:
@@ -104,16 +122,39 @@ class VCruiseHelperSP:
     return round_to_nearest, v_cruise_delta
 
   def get_minimum_set_speed(self, is_metric: bool) -> None:
-    if self.CP_SP.pcmCruiseSpeed:
+    self.is_metric = is_metric
+    if self.pcm_cruise_speed:
       self.v_cruise_min = V_CRUISE_MIN
       return
 
-    self.v_cruise_min = get_minimum_set_speed(is_metric)
+    # the stock ECU keeps the setpoint, so its own floor applies
+    self.v_cruise_min = minimum_set_speed_ms(self.CP_SP, is_metric) * CV.MS_TO_KPH
+
+  def update_icbm_latch(self, CS: car.CarState, enabled: bool) -> None:
+    # Quiet = disengaged with no cruise button down or changing. Both modes then hold the
+    # dash's setpoint and every button timer (cruise.py's included, which only runs while
+    # ICBM is active) has settled at zero, so nothing carries across the switch.
+    buttons_quiet = not any(self.enable_button_timers.values()) and \
+                    not any(b.type.raw in self.enable_button_timers for b in CS.buttonEvents)
+    if not self.icbm_latch.update(enabled or CS.cruiseState.enabled or not buttons_quiet):
+      return
+    cloudlog.event("icbm activation", active=self.icbm_latch.active)
+    self._clear_reconcile()
+    self.get_minimum_set_speed(self.is_metric)
+    self.cruise_arbiter.set_icbm_active(self.icbm_latch.active)
+
+  def _clear_reconcile(self) -> None:
+    self.reconcile_frames = 0
+    self.reconcile_allowed = False
+    self.reconcile_floor = False
 
   def update_enabled_state(self, CS: car.CarState, enabled: bool) -> bool:
+    # tracked in both modes: the ICBM latch waits for them to settle
+    update_manual_button_timers(CS, self.enable_button_timers)
+    self.update_icbm_latch(CS, enabled)
+
     # special enabled state for non pcmCruiseSpeed, unchanged for non pcmCruise
-    if not self.CP_SP.pcmCruiseSpeed:
-      update_manual_button_timers(CS, self.enable_button_timers)
+    if not self.pcm_cruise_speed:
       button_pressed = any(self.enable_button_timers[k] > 0 for k in self.enable_button_timers)
 
       if enabled and not self.enabled_prev:
@@ -136,7 +177,7 @@ class VCruiseHelperSP:
     pass
 
   def reconcile_setpoint_with_dash(self, CS: car.CarState) -> None:
-    if self.CP_SP.pcmCruiseSpeed or not self.CP.pcmCruise:
+    if self.pcm_cruise_speed or not self.CP.pcmCruise:
       return
 
     if not CS.cruiseState.available or self.v_cruise_kph in (V_CRUISE_UNSET, -1):
@@ -148,7 +189,7 @@ class VCruiseHelperSP:
     if not pressed and self.reconcile_frames <= 0:
       return
 
-    dash_kph = CS.cruiseState.speed * CV.MS_TO_KPH
+    dash_kph = CS.cruiseState.speedCluster * CV.MS_TO_KPH  # the displayed number, what the buttons step
     if pressed:
       if any(self.enable_button_timers[b] == 1 for b in RECONCILE_BUTTONS):
         # verdict per press start, before the press's own ECU effect lands; the arbiter's
@@ -206,8 +247,7 @@ class VCruiseHelperSP:
     if self.cruise_arbiter.adopted_this_frame:
       # the arbiter wrote the setpoint; on ICBM cars the ECU's own +1 from the confirm
       # press must not be re-adopted over it
+      v_cruise_kph = float(np.clip(round(v_cruise_kph, 1), self.v_cruise_min, V_CRUISE_MAX))
       self.v_cruise_kph = v_cruise_kph
       self.v_cruise_cluster_kph = v_cruise_kph
-      self.reconcile_frames = 0
-      self.reconcile_allowed = False
-      self.reconcile_floor = False
+      self._clear_reconcile()

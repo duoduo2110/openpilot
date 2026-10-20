@@ -11,6 +11,7 @@ import requests
 from requests.exceptions import (SSLError, RequestException, HTTPError)
 from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
+from openpilot.common.file_chunker import get_chunk_name
 from openpilot.common.hardware.hw import Paths
 from openpilot.sunnypilot.models.helpers import is_bundle_version_compatible
 from openpilot.cereal import custom
@@ -47,6 +48,10 @@ class ModelParser:
         os.makedirs(model_dir, exist_ok=True)
         manifest_path = os.path.join(model_dir, f"{artifact.fileName}.chunkmanifest")
         num_chunks = str(len(artifact.chunks))
+        # qcom and chestnut list the same file with different counts: only the source whose first
+        # chunk is on disk writes, and a download writes its own manifest when it finishes
+        if not os.path.isfile(get_chunk_name(os.path.join(model_dir, artifact.fileName), 0, len(artifact.chunks))):
+          return artifact
 
         if not os.path.exists(manifest_path) or open(manifest_path).read().strip() != num_chunks:
           with open(manifest_path, "w") as f:
@@ -138,8 +143,8 @@ class ModelCache:
 
 class ModelFetcher:
   """Handles fetching and caching of model data from remote source"""
-  MODEL_URL = "https://raw.githubusercontent.com/sunnypilot/sunnypilot-models/refs/heads/gh-pages/docs/driving_models_v22.json"
-  MODEL_URL_CHESTNUT = "https://raw.githubusercontent.com/sunnypilot/sunnypilot-models/refs/heads/gh-pages/docs/driving_models_chestnut_v25.json"
+  MODEL_URL = "https://raw.githubusercontent.com/sunnypilot/sunnypilot-models/refs/heads/gh-pages/docs/driving_models_v23.json"
+  MODEL_URL_CHESTNUT = "https://raw.githubusercontent.com/sunnypilot/sunnypilot-models/refs/heads/gh-pages/docs/driving_models_chestnut_v27.json"
 
   MODEL_SOURCES = {
     "qcom": (MODEL_URL, ""),
@@ -163,6 +168,9 @@ class ModelFetcher:
   def active_source(chestnut_present: bool) -> str:
     return "chestnut" if chestnut_present else "qcom"
 
+  def _extend_catalog(self, source: str, json_data: dict) -> dict:
+    return json_data
+
   def _fetch_and_cache_models(self, source: str) -> list[custom.ModelManagerSP.ModelBundle] | None:
     """Fetches fresh model data from remote and updates cache.
     Returns None on transport errors. Raises on 404 and other fatal HTTP errors.
@@ -179,7 +187,7 @@ class ModelFetcher:
       # Raise for any other 4xx/5xx
       response.raise_for_status()
 
-      json_data = response.json()
+      json_data = self._extend_catalog(source, response.json())
       parsed = self.model_parser.parse_models(json_data)
       if parsed:
         self.model_caches[source].set(json_data)

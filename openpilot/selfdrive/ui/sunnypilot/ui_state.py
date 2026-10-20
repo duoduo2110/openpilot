@@ -10,10 +10,12 @@ from openpilot.cereal import messaging, log, custom
 from opendbc.car.structs import car
 from openpilot.common.params import Params
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.display import OnroadBrightness
+from openpilot.selfdrive.ui.sunnypilot.ui_state_zp import UIStateZP
 from openpilot.sunnypilot.models.helpers import ACTIVE_BUNDLE_KEYS, get_active_source
 from openpilot.sunnypilot.sunnylink.sunnylink_state import SunnylinkState
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.sunnypilot.widgets.screen_saver import ScreenSaverSP
+from openpilot.sunnypilot.selfdrive.car.intelligent_cruise_button_management.helpers import icbm_applicable
 
 OpenpilotState = log.SelfdriveState.OpenpilotState
 MADSState = custom.ModularAssistiveDrivingSystem.ModularAssistiveDrivingSystemState
@@ -27,7 +29,7 @@ class OnroadTimerStatus(Enum):
   RESUME = 2
 
 
-class UIStateSP:
+class UIStateSP(UIStateZP):
   def __init__(self):
     self.params = Params()
     self.CP_SP: custom.CarParamsSP | None = None
@@ -64,12 +66,14 @@ class UIStateSP:
     self.custom_torque_params: bool = False
     self.torque_override_enabled: bool = False
     self._sp_initialized: bool = False
+    UIStateZP.__init__(self)
 
   def update(self) -> None:
     if self.sunnylink_enabled:
       self.sunnylink_state.start()
     else:
       self.sunnylink_state.stop()
+    UIStateZP.update(self)
 
   def onroad_brightness_handle_alerts(self, _ui_state, alert):
     if _ui_state.sm.recv_frame["carState"] < _ui_state.started_frame:
@@ -113,6 +117,8 @@ class UIStateSP:
     state = ss.state
     mads = ss_sp.mads
     mads_state = mads.state
+    # held by the car's own lane keep (mads.py update_stock_lkas): reads as lateral off
+    mads_enabled = mads.enabled and not ss_sp.zoompilot.madsLateralHeld
 
     if state == OpenpilotState.preEnabled:
       return "override"
@@ -124,20 +130,20 @@ class UIStateSP:
       if any(e.overrideLongitudinal for e in onroad_evt):
         return "override"
 
-    if mads_state in (MADSState.paused, MADSState.overriding):
+    if mads_state in (MADSState.paused, MADSState.overriding) and not ss_sp.zoompilot.madsLateralHeld:
       return "override"
 
     # MADS specific statuses
     if not mads.available:
       return "engaged" if ss.enabled else "disengaged"
 
-    if not mads.enabled and not ss.enabled:
+    if not mads_enabled and not ss.enabled:
       return "disengaged"
 
-    if mads.enabled and ss.enabled:
+    if mads_enabled and ss.enabled:
       return "engaged"
 
-    if mads.enabled:
+    if mads_enabled:
       return "lat_only"
 
     if ss.enabled:
@@ -149,7 +155,6 @@ class UIStateSP:
     CP_SP_bytes = self.params.get("CarParamsSPPersistent")
     if CP_SP_bytes is not None:
       self.CP_SP = messaging.log_from_bytes(CP_SP_bytes, custom.CarParamsSP)
-      self.has_icbm = self.CP_SP.intelligentCruiseButtonManagementAvailable and self.params.get_bool("IntelligentCruiseButtonManagement")
 
     self._enforce_constraints()
     source = get_active_source(chestnut=self.chestnut_present, chestnut_active=self.chestnut_active,
@@ -159,6 +164,7 @@ class UIStateSP:
     # stock only counts the default big model's compiled pkl. a downloaded big bundle runs on the
     # chestnut just the same, so ChestnutState has to see it as available too.
     self.chestnut_compiled = self.chestnut_compiled or self.model_runner_tinygrad
+    UIStateZP.update_params(self)
     self.blindspot = self.params.get_bool("BlindSpot")
     self.chevron_metrics = self.params.get("ChevronInfo")
     self.custom_interactive_timeout = self.params.get("InteractivityTimeout", return_default=True)
@@ -181,7 +187,7 @@ class UIStateSP:
     self.true_v_ego_ui = self.params.get_bool("TrueVEgoUI")
     self.turn_signals = self.params.get_bool("ShowTurnSignals")
     self.boot_offroad_mode = self.params.get("DeviceBootMode", return_default=True)
-    self.always_offroad = self.params.get_bool("OffroadMode")
+    self.always_offroad = self.params.get_bool("OffroadMode") or self.params.get_bool("OffroadModeRequested")  # applied or pending
     self.screensaver_enabled = self.params.get_bool("ScreenSaverEnabled")
 
     if not self._sp_initialized:
@@ -223,26 +229,19 @@ class UIStateSP:
         self.params.remove("LateralJerkTorqueController")
         self.params.remove("AlphaLongitudinalEnabled")
 
-    # No longitudinal control: no experimental mode or DEC
+    # No longitudinal control: no experimental mode. DEC, speed assist, custom ACC and
+    # SCC keep their values; card and the planner leave them idle until long or ICBM returns.
     if not has_long:
       self.params.remove("ExperimentalMode")
-      self.params.remove("DynamicExperimentalControl")
 
-    # ICBM: clear if not available or if full longitudinal control is active
-    if self.CP_SP is not None:
-      if not self.CP_SP.intelligentCruiseButtonManagementAvailable or has_long:
-        self.params.remove("IntelligentCruiseButtonManagement")
-        self.has_icbm = False
-    else:
-      self.params.remove("IntelligentCruiseButtonManagement")
-      self.has_icbm = False
+    # ICBM has no toggle: the features that act through it can, wherever the car has it
+    self.has_icbm = self.CP is not None and self.CP_SP is not None and icbm_applicable(self.CP, self.CP_SP)
 
-    # Cruise features requiring longitudinal or ICBM
-    if not (has_long or self.has_icbm):
-      self.params.remove("CustomAccIncrementsEnabled")
-      self.params.remove("SmartCruiseControlVision")
-      self.params.remove("SmartCruiseControlMap")
-      self.params.remove("SmartCruiseDecelOvershoot")
+def set_always_offroad(params: Params, enable: bool) -> None:
+  """The UI writes the forced-offroad preference only. hardwared applies it: entering waits for
+  a silenced stock ECU to be handed back before pandad sees OffroadMode, exiting clears the old
+  session's CarParams first so the fresh session sequences like a boot."""
+  params.put_bool("OffroadModeRequested", enable)
 
 
 class DeviceSP:
@@ -264,9 +263,10 @@ class DeviceSP:
     else:
       self.dismiss_screensaver(_ui_state)
 
-    # blocked runs every frame, so write only when actually sleeping
+    # blocked runs every frame, so write only when actually sleeping; ignition is off here,
+    # so hardwared applies the preference at once
     if _ui_state.boot_offroad_mode == 1 and not on and not self._blocked_by_screensaver:
-      _ui_state.params.put_bool("OffroadMode", True)
+      _ui_state.params.put_bool("OffroadModeRequested", True)
 
   def dismiss_screensaver(self, _ui_state) -> None:
     if gui_app.get_active_widget() == _ui_state.screensaver:

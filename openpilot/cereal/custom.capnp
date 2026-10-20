@@ -42,11 +42,6 @@ struct IntelligentCruiseButtonManagement {
     none @0;
     increase @1;
     decrease @2;
-    # sustained button stream at the message's native rate: the fast walk for large
-    # moves (interleaved with the wheel's own frames it registers as paced presses,
-    # never as a held button)
-    increaseHold @3;
-    decreaseHold @4;
   }
 }
 
@@ -76,6 +71,7 @@ struct SelfdriveStateSP @0x81c2f05a394cf4af {
   intelligentCruiseButtonManagement @1 :IntelligentCruiseButtonManagement;
   buttonsPressed @2 :UInt16;
   buttonsReleaseToggle @3 :UInt16;
+  zoompilot @4 :SelfdriveStateZP;
 
   enum AudibleAlert {
     none @0;
@@ -209,6 +205,7 @@ struct LongitudinalPlanSP @0xf35cc4560bbf6ec2 {
   aTarget @5 :Float32;
   events @6 :List(OnroadEventSP.Event);
   e2eAlerts @7 :E2eAlerts;
+  zoompilot @8 :LongitudinalPlanZP;
 
   struct DynamicExperimentalControl {
     state @0 :DynamicExperimentalControlState;
@@ -233,9 +230,6 @@ struct LongitudinalPlanSP @0xf35cc4560bbf6ec2 {
       maxPredictedLateralAccel @4 :Float32;
       enabled @5 :Bool;
       active @6 :Bool;
-      # lowest planned speed on the model horizon, m/s; 0 = no lookahead (feature off,
-      # long disabled, or no model), 255 caps "nothing binding ahead"
-      vAheadMin @7 :Float32;
     }
 
     struct Map {
@@ -318,6 +312,7 @@ struct LongitudinalPlanSP @0xf35cc4560bbf6ec2 {
 
 struct OnroadEventSP @0xda96579883444c35 {
   events @0 :List(Event);
+  zoompilot @1 :OnroadEventZP;
 
   struct Event {
     name @0 :EventName;
@@ -362,8 +357,6 @@ struct OnroadEventSP @0xda96579883444c35 {
     e2eChime @23;
     laneChangeRoadEdge @24;
     bigModelReady @25;
-    controlsMismatchLateralWarning @26;
-    silentPedalPressed @27;
   }
 }
 
@@ -373,6 +366,7 @@ struct CarParamsSP @0x80ae746ee2596b11 {
   pcmCruiseSpeed @3 :Bool;
   intelligentCruiseButtonManagementAvailable @4 :Bool;
   enableGasInterceptor @5 :Bool;
+  zoompilot @6 :CarParamsZP;
 
   neuralNetworkLateralControl @2 :NeuralNetworkLateralControl;
 
@@ -393,13 +387,7 @@ struct CarControlSP @0xa5cd762cd951a455 {
   leadOne @2 :LeadData;
   leadTwo @3 :LeadData;
   intelligentCruiseButtonManagement @4 :IntelligentCruiseButtonManagement;
-  turnAssistDEPRECATED @5 :TurnAssistDEPRECATED;  # low-speed turn assist removed 2026-09; ordinal kept for old logs
-  zoompilot @6 :CarControlZP;
-
-  struct TurnAssistDEPRECATED {
-    holdCurvature @0 :Float32;
-    leadCurvature @1 :Float32;
-  }
+  zoompilot @5 :CarControlZP;
 
   struct Param {
     key @0 :Text;
@@ -480,6 +468,7 @@ struct ModelDataV2SP @0xa1680744031fdb2d {
   laneTurnDirection @0 :TurnDirection;
   leftLaneChangeEdgeBlock @1 :Bool;
   rightLaneChangeEdgeBlock @2 :Bool;
+  zoompilot @3 :ModelDataV2ZP;
 
   enum TurnDirection {
     none @0;
@@ -530,12 +519,110 @@ struct CustomReserved19 @0xa4f1eb3323f5f582 {
 }
 
 # ---- zoompilot -----------------------------------------------------------------------------
-# Fork structs. Each sunnypilot struct above carries at most one fork field, a nested
-# `zoompilot` struct defined here, so an upstream append to those structs never lands on a
-# fork ordinal.
+# Fork structs. A sunnypilot struct above that zoompilot extends carries exactly one fork field,
+# a `zoompilot` nest at its next ordinal, defined here; no sunnypilot enum carries a fork
+# enumerant. An upstream append to such a struct then renumbers only our nest's line (logs from
+# before a renumber read with zoompilot-research tools/legacy_schema). CustomReserved19 is the
+# one reserved struct zoompilot fills whole.
+
+struct SelfdriveStateZP @0xde02074862680d1d {
+  # MADS enabled but held off by the car's own lane keep (switched off, or the EPS re-arming
+  # after it came back on): the UI shows lateral as off rather than paused or active.
+  madsLateralHeld @0 :Bool;
+  # ICBM's sendButton as a sustained stream at the message's native rate: the fast walk for
+  # large moves (interleaved with the wheel's own frames it registers as paced presses, never
+  # as a held button). sendButton keeps the direction.
+  icbmHold @1 :Bool;
+}
+
+struct CarParamsZP @0x89825c62ea259087 {
+  minimumSetSpeed @0 :Float32;  # m/s, lowest set speed the stock cruise accepts; 0 = 20 mph / 30 km/h
+}
+
+struct ModelDataV2ZP @0xb99ad9cc1f2c3736 {
+  # Runtime state of an off-board accelerator (sunnypilot/jetlink_adapter). Offroad
+  # progress stays in the AcceleratorProgress param; telemetry waits for a customReserved slot.
+  acceleratorState @0 :AcceleratorState;
+
+  enum AcceleratorState {
+    none @0;
+    joining @1;
+    running @2;
+    retrying @3;
+    unavailable @4;
+    ready @5;      # link up, engine loaded, waiting for a window to switch
+  }
+}
+
+# zoompilot's own onroad events, raised and logged by selfdrived beside sunnypilot's
+# (onroadEventsSP.zoompilot.events). Event has OnroadEventSP.Event's fields.
+struct OnroadEventZP @0xeff60a9f4d5cb12f {
+  events @0 :List(Event);
+
+  struct Event {
+    name @0 :EventName;
+
+    # event types
+    enable @1 :Bool;
+    noEntry @2 :Bool;
+    warning @3 :Bool;   # alerts presented only when  enabled or soft disabling
+    userDisable @4 :Bool;
+    softDisable @5 :Bool;
+    immediateDisable @6 :Bool;
+    preEnable @7 :Bool;
+    permanent @8 :Bool; # alerts presented regardless of openpilot state
+    overrideLateral @10 :Bool;
+    overrideLongitudinal @9 :Bool;
+  }
+
+  enum EventName {
+    controlsMismatchLateralWarning @0;
+    silentPedalPressed @1;
+    stockEcuNotReady @2;
+    stockEcuInitializing @3;
+    stockEcuReady @4;
+    bigModelAvailable @5;
+    bigModelLinkLost @6;
+    stockLkasOff @7;
+    longitudinalEnableChime @8;
+    longitudinalDisableChime @9;
+    stockLkasArming @10;
+  }
+}
 
 struct CarStateZP @0xc879af11c43cb400 {
   cruiseSession @0 :CruiseSession;
+  # The stock ECU transition contract (opendbc/sunnypilot/car/stock_ecu.py), written by card
+  # at carState rate: the driver's view of the ECU openpilot stands in for. ready is the
+  # vehicle's own silence guard, never a session acknowledgement.
+  stockEcu @1 :StockEcuState;
+  # The wheel's "farther" distance button, level. Upstream's one gapAdjustCruise button type
+  # cycles the personality one way; selfdrived steps it the other way on this release.
+  distanceFarther @2 :Bool;
+  # The car's own lane keep is back on after the driver switched it off, and the EPS has not
+  # applied torque since. MADS keeps the driver told lateral is disabled until it does.
+  lkasArming @3 :Bool;
+  # Whether ICBM drives the set speed this frame, decided by card alone (icbm_latch.py); every
+  # other process reads it here instead of CarParamsSP.pcmCruiseSpeed. unset is a log from
+  # before the field: readers fall back to that boot flag.
+  icbmActivation @4 :IcbmActivation;
+
+  enum IcbmActivation {
+    unset @0;
+    passive @1;
+    active @2;
+  }
+
+  enum StockEcuState {
+    notNeeded @0;
+    starting @1;
+    parkToTakeOver @2;
+    stockCruiseOn @3;
+    ready @4;
+    restoring @5;
+    restored @6;
+    failed @7;
+  }
 
   # The card-side cruise arbiter's session, published at carState rate. On non-pcm
   # cars this is the authoritative SLA session: plannerd mirrors it into
@@ -563,8 +650,110 @@ struct CarStateZP @0xc879af11c43cb400 {
 
 struct CarControlZP @0xaadf9bc39b7bd41e {
   laneChangeSmoothing @0 :LaneChangeSmoothing;
+  icbmHold @1 :Bool;  # SelfdriveStateZP.icbmHold, for the car's button sender
 
   struct LaneChangeSmoothing {
     jerkFactor @0 :Float32;
+  }
+}
+
+struct LongitudinalPlanZP @0xc3b0556e1118c2db {
+  e2eSetSpeed @0 :E2ESetSpeed;
+  leadForecast @1 :LeadForecast;
+  e2eLeadGap @2 :E2ELeadGap;
+  # lowest planned speed on the model horizon, m/s (smart cruise control vision); 0 = no
+  # lookahead (feature off, long disabled, or no model), 255 caps "nothing binding ahead"
+  sccVAheadMin @3 :Float32;
+
+  # Experimental mode's follow-distance assist (sunnypilot/selfdrive/controls/lib/e2e_lead_gap):
+  # what it added to the model's acceleration behind a lead and, when nothing, why.
+  struct E2ELeadGap {
+    authority @0 :Float32;     # 0..1, rate-limited
+    gain @1 :Float32;          # 0..1 from the model's own acceleration
+    weight @2 :Float32;        # 0..1 from the gap excess and ego speed
+    gapExcess @3 :Float32;     # m beyond long_mpc's gap for this personality
+    boost @4 :Float32;         # m/s^2 added to the model's acceleration
+    inhibit @5 :Inhibit;
+
+    enum Inhibit {
+      disabled @0;      # the ExperimentalModeLeadGap toggle is off (and logs from before it)
+      none @1;
+      inactive @2;      # not e2e, or long control reset
+      decActive @3;
+      invalid @4;
+      hold @5;          # a trip cleared less than the hold time ago
+      fcw @6;
+      hardBrake @7;
+      forceDecel @8;
+      stop @9;
+      driver @10;       # gas or brake pressed
+      modelBraking @11;
+      planSlowing @12;
+      lateral @13;
+      coast @14;        # allow_throttle false
+      laneChange @15;
+      lowSpeed @16;
+      noLead @17;
+      leadUncertain @18;
+      leadSlow @19;
+      leadBraking @20;  # braking now, or its forecast slows
+      leadChanged @21;  # the lead jumped: cut-in, swap, new car
+    }
+  }
+
+  # The model's lead forecast as the long MPC obstacle (sunnypilot/selfdrive/controls/lib/lead_forecast):
+  # how much of each lead the MPC took from the forecast, and the trajectory it got.
+  struct LeadForecast {
+    leadOne @0 :Lead;
+    leadTwo @1 :Lead;
+
+    struct Lead {
+      weight @0 :Float32;      # 0 upstream extrapolation .. 1 forecast, rate-limited
+      inhibit @1 :Inhibit;
+      x @2 :List(Float32);     # m, the MPC's lead position at its T_IDXS
+      v @3 :List(Float32);     # m/s
+    }
+
+    enum Inhibit {
+      disabled @0;      # the LeadForecast toggle is off (and logs from before it)
+      none @1;
+      noLead @2;
+      radar @3;         # a radar track: measured, keeps upstream's extrapolation
+      invalid @4;
+      mismatch @5;      # radarState's lead is not the model's lead
+    }
+  }
+
+  # Experimental mode's set-speed floor (sunnypilot/selfdrive/controls/lib/e2e_set_speed):
+  # what it added to the model's acceleration and, when nothing, why.
+  struct E2ESetSpeed {
+    authority @0 :Float32;     # 1, or 0 while a hazard holds the boost off (0..1 rate-limited before 2026-10)
+    gain @1 :Float32;          # 0..1 from the model's own acceleration
+    floor @2 :Float32;         # m/s^2 the boost pulls toward
+    boost @3 :Float32;         # m/s^2 added to the model's acceleration
+    inhibit @4 :Inhibit;
+    bound @5 :Float32;         # m/s^2 the speed envelope allows
+    added @6 :Float32;         # m/s this controller has put on the car, handed back over the envelope
+
+    enum Inhibit {
+      disabled @0;      # the ExperimentalModeSetSpeed toggle is off (and logs from before it)
+      none @1;
+      inactive @2;      # not e2e, or long control reset
+      decActive @3;
+      invalid @4;
+      hold @5;          # a hazard cleared less than the hold time ago
+      fcw @6;
+      hardBrake @7;
+      forceDecel @8;
+      stop @9;          # retired 2026-10, older logs only (the envelope covers stops)
+      lead @10;
+      driver @11;       # gas or brake pressed
+      modelBraking @12; # gain at zero (a trip before 2026-10)
+      planSlowing @13;  # the envelope below the floor (a trip before 2026-10)
+      lateral @14;      # retired 2026-10, older logs only
+      coast @15;        # retired 2026-10, older logs only
+      laneChange @16;
+      lowSpeed @17;     # retired 2026-10, older logs only
+    }
   }
 }

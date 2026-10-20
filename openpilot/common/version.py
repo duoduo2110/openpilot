@@ -10,6 +10,13 @@ from openpilot.common.basedir import BASEDIR
 from openpilot.common.swaglog import cloudlog
 from openpilot.common.git import get_commit, get_origin, get_branch, get_short_branch, get_commit_date
 
+# comma three channels that do not follow the -tici suffix convention
+TICI_BRANCHES = {'c3-zp'}
+
+
+def is_tici_branch(channel: str) -> bool:
+  return channel.endswith("-tici") or channel in TICI_BRANCHES
+
 RELEASE_SP_BRANCHES = ['release-c3', 'release', 'release-tizi', 'release-tici', 'release-tizi-staging', 'release-tici-staging']
 TESTED_SP_BRANCHES = ['staging-c3', 'staging-c3-new', 'staging']
 MASTER_SP_BRANCHES = ['master']
@@ -26,9 +33,9 @@ CHESTNUT_BRANCHES = {
 }
 
 SP_BRANCH_MIGRATIONS = {
-  ("tici", "develop"): "develop-tici",
-  ("tici", "main"): "develop-tici",
-  ("tici", "danger-unstable"): "develop-tici",
+  ("tici", "develop"): "c3-zp",
+  ("tici", "main"): "c3-zp",
+  ("tici", "danger-unstable"): "c3-zp",
   ("tici", "staging-c3-new"): "staging-tici",
   ("tici", "dev-c3-new"): "staging-tici",
   ("tici", "master"): "master-tici",
@@ -164,7 +171,7 @@ class BuildMetadata:
 
   @property
   def channel_type(self) -> str:
-    if self.channel.endswith("-tici"):
+    if is_tici_branch(self.channel):
       return "tici"
     elif self.development_channel:
       return "development"

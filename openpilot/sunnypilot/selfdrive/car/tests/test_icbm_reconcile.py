@@ -25,8 +25,11 @@ ButtonType = car.CarState.ButtonEvent.Type
 MPH = CV.MPH_TO_KPH  # dash and v_cruise are tracked in kph; the CX-5 dash steps in whole mph
 
 
-def make_car_state(dash_kph=0., gas_pressed=False, button_events=None, available=True, v_ego=0.):
-  CS = car.CarState(cruiseState={"available": available, "speed": dash_kph * CV.KPH_TO_MS})
+def make_car_state(dash_kph=0., gas_pressed=False, button_events=None, available=True, v_ego=0., held_kph=None):
+  # the reconciler reads the displayed number (speedCluster); held_kph stages a cluster that
+  # over-reads the held speed (Mazda OCEANIA_CLUSTER)
+  held = dash_kph if held_kph is None else held_kph
+  CS = car.CarState(cruiseState={"available": available, "speed": held * CV.KPH_TO_MS, "speedCluster": dash_kph * CV.KPH_TO_MS})
   CS.gasPressed = gas_pressed
   CS.vEgo = v_ego
   CS.buttonEvents = button_events or []
@@ -39,7 +42,7 @@ class TestSetpointReconcile:
   def setup_method(self):
     Params().put_bool("CustomAccIncrementsEnabled", False)
     self.CP = car.CarParams(pcmCruise=True)
-    self.CP_SP = custom.CarParamsSP(pcmCruiseSpeed=False)
+    self.CP_SP = custom.CarParamsSP(pcmCruiseSpeed=False, intelligentCruiseButtonManagementAvailable=True)
     self.v_cruise_helper = VCruiseHelper(self.CP, self.CP_SP)
     self.is_metric = False  # the dash unit; kph-valued fixtures below scale by MPH or 1
 
@@ -225,3 +228,29 @@ class TestSetpointReconcile:
     # 30 m/s = 108 kph; without the guard v_cruise would have clipped up to vEgo
     assert self.v_cruise_helper.v_cruise_kph < 60.
 
+  def test_reconciles_against_the_displayed_number(self):
+    # an Oceania Mazda cluster shows the held speed over-read; the driver steps what is
+    # displayed, so the adopted setpoint is the display value, not the CAN value
+    self.v_cruise_helper.v_cruise_kph = 100.
+    CS = make_car_state(dash_kph=100., held_kph=97., available=True,
+                        button_events=[ButtonEvent(type=ButtonType.accelCruise, pressed=True)])
+    self.v_cruise_helper.update_v_cruise(CS, enabled=True, is_metric=True)
+    self.v_cruise_helper.reconcile_setpoint_with_dash(CS)
+    for _ in range(int(RECONCILE_SETTLE_TIME / DT_CTRL) + 2):
+      CS = make_car_state(dash_kph=101., held_kph=98., available=True)
+      self.v_cruise_helper.update_v_cruise(CS, enabled=True, is_metric=True)
+      self.v_cruise_helper.reconcile_setpoint_with_dash(CS)
+    assert round(self.v_cruise_helper.v_cruise_kph) == 101
+
+  @pytest.mark.parametrize("floor_kph, dash_kph, expected_kph", [
+    (30., 30., 30.),        # Mazda MRCC: the 30 kph floor (dash 19 mph) is adopted as is
+    (0., 30., 20 * MPH),    # sunnypilot's default floor is 20 mph, not 20 kph
+  ])
+  def test_floor_is_the_cars(self, floor_kph, dash_kph, expected_kph):
+    self.v_cruise_helper = VCruiseHelper(self.CP, custom.CarParamsSP(pcmCruiseSpeed=False, zoompilot={'minimumSetSpeed': floor_kph * CV.KPH_TO_MS},
+                                                                         intelligentCruiseButtonManagementAvailable=True))
+    # SET- at 20 mph; the ECU settles on its floor
+    self.engage_at(20 * MPH)
+    self.press(ButtonType.decelCruise, dash_kph=20 * MPH)
+    self.run_frames(make_car_state(dash_kph=dash_kph), n=20)
+    assert self.v_cruise_helper.v_cruise_kph == pytest.approx(expected_kph, abs=0.1)
